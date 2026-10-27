@@ -60,6 +60,7 @@ function getLocalBundle(): Bundle {
     plan: workouts.map((row) => json<Workout>(row.payload, { id: row.id, date: "", week: 0, session: "" })),
     meta,
     preferences: { ...defaultPreferences, ...settings } as Preferences,
+    storage: "SQLite",
   };
 }
 
@@ -81,6 +82,7 @@ export async function getBundle(): Promise<Bundle> {
     plan: workouts.map((row) => json<Workout>(row.payload, { id: row.id, date: "", week: 0, session: "" })),
     meta,
     preferences: { ...defaultPreferences, ...settings } as Preferences,
+    storage: "Turso",
   };
 }
 

@@ -53,4 +53,5 @@ export type Bundle = {
   plan: Workout[];
   meta: Record<string, string>;
   preferences: Preferences;
+  storage?: "Turso" | "SQLite";
 };
