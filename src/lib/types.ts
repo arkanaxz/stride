@@ -12,6 +12,7 @@ export type Run = {
   weatherDuring?: string;
   weatherRoute?: string;
   startTime?: string;
+  endTime?: string;
   location?: string;
   sleep?: number | null;
   pain?: number | null;
@@ -46,6 +47,7 @@ export type Preferences = {
   planRowCount: number;
   provider: "openai" | "gemini" | "anthropic";
   model: string;
+  lthr?: number | null;
 };
 
 export type Bundle = {

@@ -12,6 +12,7 @@ const defaultPreferences: Preferences = {
   planRowCount: 1,
   provider: "openai",
   model: "gpt-6-luna",
+  lthr: null,
 };
 
 function json<T>(value: string, fallback: T): T {

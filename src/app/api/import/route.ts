@@ -12,6 +12,8 @@ function numeric(raw: unknown): number | null {
   const result = Number(raw);
   return Number.isFinite(result) ? result : null;
 }
+function clockTime(raw: string): string { const match = raw.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i); if (!match) return ""; let hour = Number(match[1]) % 12; if (match[3].toUpperCase() === "PM") hour += 12; return `${String(hour).padStart(2, "0")}:${match[2]}`; }
+
 function dateString(raw: unknown): string {
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
   if (typeof raw === "number") return XLSX.SSF.parse_date_code(raw)?.y ? new Date(Date.UTC(XLSX.SSF.parse_date_code(raw)!.y, XLSX.SSF.parse_date_code(raw)!.m - 1, XLSX.SSF.parse_date_code(raw)!.d)).toISOString().slice(0, 10) : "";
@@ -44,7 +46,7 @@ function csvRun(row: Record<string, string>): Run | null {
   const distance = numeric(row.distance);
   const duration = numeric(row.duration);
   if (!date || !name || distance === null || duration === null) return null;
-  return { date, name, type: text(row.type) || "Run", distance, duration, avgHr: numeric(row.avgHr), maxHr: numeric(row.maxHr), sleep: numeric(row.sleep), pain: numeric(row.pain), painDuring: text(row.painDuring), painNext: text(row.painNext), effort: numeric(row.effort), weatherStart: text(row.weatherStart), weatherEnd: text(row.weatherEnd), weatherDuring: text(row.weatherDuring), weatherRoute: text(row.weatherRoute), location: text(row.location), startTime: text(row.startTime), shoes: text(row.shoes), notes: text(row.notes) };
+  return { date, name, type: text(row.type) || "Run", distance, duration, avgHr: numeric(row.avgHr), maxHr: numeric(row.maxHr), sleep: numeric(row.sleep), pain: numeric(row.pain), painDuring: text(row.painDuring), painNext: text(row.painNext), effort: numeric(row.effort), weatherStart: text(row.weatherStart), weatherEnd: text(row.weatherEnd), weatherDuring: text(row.weatherDuring), weatherRoute: text(row.weatherRoute), location: text(row.location), startTime: text(row.startTime), endTime: text(row.endTime), shoes: text(row.shoes), notes: text(row.notes) };
 }
 
 export async function POST(request: Request) {
@@ -92,6 +94,7 @@ export async function POST(request: Request) {
         painDuring: text(value(row, 10)), painNext: text(value(row, 11)), sleep,
         pain: Math.max(0, ...(text(value(row, 10)).match(/\d+(?:\.\d+)?/g) || ["0"]).map(Number)),
         weatherRoute: weather,
+        startTime: weatherTimes ? clockTime(weatherTimes[1]) : "", endTime: weatherTimes ? clockTime(weatherTimes[2]) : "",
         weatherStart: weatherTimes && temperatures ? `${weatherTimes[1]} · ${temperatures[1]}°C` : weather,
         weatherEnd: weatherTimes && temperatures ? `${weatherTimes[2]} · ${temperatures[2]}°C` : "",
         shoes: text(value(row, 14)), notes: text(value(row, 15)),
