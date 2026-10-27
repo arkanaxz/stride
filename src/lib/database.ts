@@ -19,10 +19,11 @@ function json<T>(value: string, fallback: T): T {
 }
 
 const globalDatabase = globalThis as typeof globalThis & { strideLocalDatabase?: DatabaseSync; strideCloudDatabase?: ReturnType<typeof createClient>; strideDbReady?: Promise<void> };
-const cloudUrl = process.env.TURSO_DATABASE_URL;
+const cloudUrl = process.env.TURSO_DATABASE_URL || process.env.stride_TURSO_DATABASE_URL;
+const cloudAuthToken = process.env.TURSO_AUTH_TOKEN || process.env.stride_TURSO_AUTH_TOKEN;
 if (process.env.VERCEL && !cloudUrl) throw new Error("Connect a Turso database before deploying Stride to Vercel.");
-if (cloudUrl && !process.env.TURSO_AUTH_TOKEN) throw new Error("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL is configured.");
-const cloud = cloudUrl ? globalDatabase.strideCloudDatabase ?? createClient({ url: cloudUrl, authToken: process.env.TURSO_AUTH_TOKEN }) : undefined;
+if (cloudUrl && !cloudAuthToken) throw new Error("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL is configured.");
+const cloud = cloudUrl ? globalDatabase.strideCloudDatabase ?? createClient({ url: cloudUrl, authToken: cloudAuthToken }) : undefined;
 if (cloud) globalDatabase.strideCloudDatabase = cloud;
 let local: DatabaseSync | undefined;
 if (!cloud) {

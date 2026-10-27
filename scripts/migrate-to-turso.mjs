@@ -2,8 +2,8 @@ import { createClient } from "@libsql/client";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 
-const url = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+const url = process.env.TURSO_DATABASE_URL || process.env.stride_TURSO_DATABASE_URL;
+const authToken = process.env.TURSO_AUTH_TOKEN || process.env.stride_TURSO_AUTH_TOKEN;
 if (!url || !authToken) throw new Error("Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in .env.local first.");
 
 const localPath = path.resolve(process.env.STRIDE_DB_PATH || path.join(process.cwd(), "data", "stride.sqlite"));

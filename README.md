@@ -19,6 +19,8 @@ Vercel Functions do not provide a persistent local disk, so configure Turso thro
 
 Set them for Production (and Preview only if you want preview deployments usable), then deploy. The dashboard, data APIs, Excel import, AI analysis, and the legacy default-data URL are behind the login gate. Sessions are signed, HTTP-only, and expire after seven days.
 
+If Vercel names the integration variables with the resource prefix (for example, `stride_TURSO_DATABASE_URL` and `stride_TURSO_AUTH_TOKEN`), Stride recognizes those names as well.
+
 ## Move local data to Turso
 
 1. Create/connect Turso through the Vercel Marketplace and create an empty database.
