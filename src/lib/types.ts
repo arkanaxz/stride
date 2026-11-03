@@ -22,6 +22,15 @@ export type Run = {
   shoes?: string;
   notes?: string;
   analysis?: string;
+  analysisHistory?: AnalysisReview[];
+};
+
+export type AnalysisReview = {
+  id: string;
+  createdAt: string;
+  provider: Preferences["provider"];
+  model: string;
+  text: string;
 };
 
 export type Workout = {

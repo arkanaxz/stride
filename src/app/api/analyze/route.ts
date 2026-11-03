@@ -1,7 +1,7 @@
 import { currentUser } from "@/lib/auth";
 import { getBundle, saveBundle } from "@/lib/database";
 import { getProviderKey } from "@/lib/secrets";
-import type { Run } from "@/lib/types";
+import type { AnalysisReview, Run } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,27 +46,51 @@ export async function POST(request: Request) {
       answer = result.content?.filter((part: { type: string }) => part.type === "text").map((part: { text: string }) => part.text).join("\n") || "";
     } else if (provider === "gemini") {
       const headers = { "x-goog-api-key": apiKey, "Content-Type": "application/json", "Api-Revision": "2026-05-20" };
-      response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers, body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, background: false, store: false, generation_config: { thinking_level: "low", max_output_tokens: 900 } }), signal: controller.signal });
-      const interaction = await response.json() as {
+      response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers, body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, background: false, store: false, generation_config: { thinking_level: "low", max_output_tokens: 1800 } }), signal: controller.signal });
+      let interaction = await response.json() as {
         status?: string;
+        id?: string;
+        continuation_token?: string;
         output_text?: string;
         error?: { message?: string };
         steps?: { type?: string; content?: { type?: string; text?: string }[] }[];
       };
       if (!response.ok) return Response.json({ error: interaction.error?.message || "Gemini request failed." }, { status: response.status });
-      const stepText = interaction.steps?.filter((step) => !step.type || step.type === "model_output").flatMap((step) => step.content || []).filter((part) => part.type === "text").map((part) => part.text || "").filter(Boolean).join("\n") || "";
-      answer = interaction.output_text?.trim() || stepText.trim();
-      if (!answer || !["completed", "incomplete"].includes(interaction.status || "")) {
+      const interactionText = (value: typeof interaction) => value.output_text?.trim() || value.steps?.filter((step) => !step.type || step.type === "model_output").flatMap((step) => step.content || []).filter((part) => part.type === "text").map((part) => part.text || "").filter(Boolean).join("\n").trim() || "";
+      answer = interactionText(interaction);
+      let outputLimit = 1800;
+      let continuations = 0;
+      while (["requires_continuation", "incomplete"].includes(interaction.status || "") && interaction.continuation_token && continuations < 2) {
+        outputLimit = Math.min(outputLimit * 2, 7200);
+        response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, continuation_token: interaction.continuation_token, background: false, store: false, generation_config: { thinking_level: "low", max_output_tokens: outputLimit } }),
+          signal: controller.signal,
+        });
+        interaction = await response.json();
+        if (!response.ok) return Response.json({ error: interaction.error?.message || "Gemini could not finish continuing the response." }, { status: response.status });
+        const nextText = interactionText(interaction);
+        if (nextText) answer = [answer, nextText].filter(Boolean).join("\n");
+        continuations += 1;
+      }
+      if (!answer || interaction.status !== "completed") {
         const detail = interaction.error?.message || (interaction.status ? `Gemini returned “${interaction.status}” without a complete text response.` : "Gemini returned no completion status or text.");
         return Response.json({ error: detail }, { status: 502 });
       }
-      if (interaction.status === "incomplete") answer += "\n\n(Gemini marked this as a partial response.)";
     } else {
       return Response.json({ error: "Unsupported AI provider." }, { status: 400 });
     }
-    const updatedRuns = bundle.runs.map((item) => item.id === runId ? { ...item, analysis: answer } : item);
+    answer = answer.replace(/\\([*#_])/g, "$1").replace(/\\\r?\n/g, "\n").replace(/\\n/g, "\n").trim();
+    const review: AnalysisReview = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), provider, model, text: answer };
+    const updatedRuns = bundle.runs.map((item) => {
+      if (item.id !== runId) return item;
+      const history = item.analysisHistory || [];
+      const previous = item.analysis && !history.some((entry) => entry.text === item.analysis) ? [{ id: `legacy-${runId}`, createdAt: `${item.date}T12:00:00.000Z`, provider, model: "Previous response", text: item.analysis }] : [];
+      return { ...item, analysis: answer, analysisHistory: [...history, ...previous, review] };
+    });
     await saveBundle({ runs: updatedRuns });
-    return Response.json({ answer, model, provider });
+    return Response.json({ answer, model, provider, review, history: updatedRuns.find((item) => item.id === runId)?.analysisHistory || [review] });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "AbortError";
     return Response.json({ error: timeout ? "The analysis took too long. Try a faster model or retry later." : "Could not connect to the selected AI provider." }, { status: timeout ? 504 : 502 });
