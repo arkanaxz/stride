@@ -46,16 +46,9 @@ export async function POST(request: Request) {
       answer = result.content?.filter((part: { type: string }) => part.type === "text").map((part: { text: string }) => part.text).join("\n") || "";
     } else if (provider === "gemini") {
       const headers = { "x-goog-api-key": apiKey, "Content-Type": "application/json", "Api-Revision": "2026-05-20" };
-      response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers, body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, background: true, store: false, generation_config: { thinking_level: "low", max_output_tokens: 900 } }), signal: controller.signal });
+      response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers, body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, background: false, store: false, generation_config: { thinking_level: "low", max_output_tokens: 900 } }), signal: controller.signal });
       let interaction = await response.json();
       if (!response.ok) return Response.json({ error: interaction.error?.message || "Gemini request failed." }, { status: response.status });
-      const started = Date.now();
-      while (interaction.status === "in_progress" && Date.now() - started < 270 * 1000) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/interactions/${encodeURIComponent(interaction.id)}`, { headers, signal: controller.signal });
-        interaction = await response.json();
-        if (!response.ok) return Response.json({ error: interaction.error?.message || "Gemini request failed." }, { status: response.status });
-      }
       answer = interaction.output_text || interaction.steps?.flatMap((step: { content?: { type: string; text?: string }[] }) => step.content || []).filter((part: { type: string }) => part.type === "text").map((part: { text?: string }) => part.text).join("\n") || "";
       if (interaction.status !== "completed" || !answer) return Response.json({ error: "Gemini did not complete the analysis. Please try again." }, { status: 502 });
     } else {
