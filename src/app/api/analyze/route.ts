@@ -47,10 +47,20 @@ export async function POST(request: Request) {
     } else if (provider === "gemini") {
       const headers = { "x-goog-api-key": apiKey, "Content-Type": "application/json", "Api-Revision": "2026-05-20" };
       response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", { method: "POST", headers, body: JSON.stringify({ model: model || "gemini-3.8-flash", input: prompt, background: false, store: false, generation_config: { thinking_level: "low", max_output_tokens: 900 } }), signal: controller.signal });
-      let interaction = await response.json();
+      const interaction = await response.json() as {
+        status?: string;
+        output_text?: string;
+        error?: { message?: string };
+        steps?: { type?: string; content?: { type?: string; text?: string }[] }[];
+      };
       if (!response.ok) return Response.json({ error: interaction.error?.message || "Gemini request failed." }, { status: response.status });
-      answer = interaction.output_text || interaction.steps?.flatMap((step: { content?: { type: string; text?: string }[] }) => step.content || []).filter((part: { type: string }) => part.type === "text").map((part: { text?: string }) => part.text).join("\n") || "";
-      if (interaction.status !== "completed" || !answer) return Response.json({ error: "Gemini did not complete the analysis. Please try again." }, { status: 502 });
+      const stepText = interaction.steps?.filter((step) => !step.type || step.type === "model_output").flatMap((step) => step.content || []).filter((part) => part.type === "text").map((part) => part.text || "").filter(Boolean).join("\n") || "";
+      answer = interaction.output_text?.trim() || stepText.trim();
+      if (!answer || !["completed", "incomplete"].includes(interaction.status || "")) {
+        const detail = interaction.error?.message || (interaction.status ? `Gemini returned “${interaction.status}” without a complete text response.` : "Gemini returned no completion status or text.");
+        return Response.json({ error: detail }, { status: 502 });
+      }
+      if (interaction.status === "incomplete") answer += "\n\n(Gemini marked this as a partial response.)";
     } else {
       return Response.json({ error: "Unsupported AI provider." }, { status: 400 });
     }
