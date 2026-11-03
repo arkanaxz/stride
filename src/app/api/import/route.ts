@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { currentUser } from "@/lib/auth";
 import { saveBundle, getBundle } from "@/lib/database";
 import type { Run, Workout } from "@/lib/types";
 
@@ -50,6 +51,8 @@ function csvRun(row: Record<string, string>): Run | null {
 }
 
 export async function POST(request: Request) {
+  const user = await currentUser();
+  if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File) || file.size > 40_000_000) return Response.json({ error: "Choose an Excel workbook under 40 MB." }, { status: 413 });
@@ -67,6 +70,29 @@ export async function POST(request: Request) {
       return Response.json({ ...result, importedRuns: importedRuns.length, importedWorkouts: 0 });
     }
     const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+    const runningEraSheet = workbook.Sheets["Training Log"];
+    if (runningEraSheet) {
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(runningEraSheet, { header: 1, raw: true, defval: "" });
+      const importedPlan: Workout[] = rows.slice(5).flatMap((row, index) => {
+        const date = dateString(value(row, 2));
+        const type = text(value(row, 4));
+        const workoutText = text(value(row, 5));
+        if (!date || !type || /^(rest|strength)/i.test(type) || !workoutText) return [];
+        const week = numeric(value(row, 0)) || 0;
+        const day = text(value(row, 3));
+        const plannedKm = numeric(value(row, 6));
+        const paceTarget = text(value(row, 7));
+        const hrTarget = text(value(row, 8));
+        const coaching = text(value(row, 9));
+        const status = /^yes$/i.test(text(value(row, 10))) ? "completed" : "planned";
+        const actualNotes = text(value(row, 16));
+        return [{ id: `running-era-${date}-${week}-${day}-${index}`, week, phase: text(value(row, 1)), day, date, session: `${type}: ${workoutText}`, target: plannedKm === null ? workoutText : `${plannedKm} km · ${workoutText}`, pace: paceTarget, hr: hrTarget, notes: [coaching, actualNotes && `Logged notes: ${actualNotes}`].filter(Boolean).join("\n\n"), status, dateShiftable: false }];
+      });
+      if (!importedPlan.length) return Response.json({ error: "No running workouts were found on the Training Log sheet." }, { status: 400 });
+      const current = await getBundle();
+      const result = await saveBundle({ plan: importedPlan, preferences: { ...current.preferences, raceDate: "2027-03-07", lthr: 179 }, meta: { ...current.meta, title: "SM2SM 2027 Half Marathon · Sub 1:45", raceDate: "2027-03-07", goalFinish: "1:44:59", goalPace: "4:58/km" } });
+      return Response.json({ ...result, importedRuns: 0, importedWorkouts: importedPlan.length });
+    }
     const runSheet = workbook.Sheets["Run Log"];
     const planSheet = workbook.Sheets["Training Plan"];
     if (!runSheet || !planSheet) return Response.json({ error: "Workbook must include Run Log and Training Plan sheets." }, { status: 400 });

@@ -1,14 +1,22 @@
-import { getBundle, hasMigratedLegacyData, markLegacyDataMigrated, saveBundle } from "@/lib/database";
+import { currentUser } from "@/lib/auth";
+import { getBundle, getComments, hasMigratedLegacyData, markLegacyDataMigrated, saveBundle } from "@/lib/database";
 import type { Bundle } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return Response.json(await getBundle(), { headers: { "Cache-Control": "no-store" } });
+  const user = await currentUser();
+  if (!user) return Response.json({ error: "Please sign in." }, { status: 401 });
+  const [bundle, comments] = await Promise.all([getBundle(), getComments()]);
+  let shoeMileageBase: Record<string, number> = {};
+  try { shoeMileageBase = JSON.parse(String(bundle.meta.shoeMileageBase || "{}")) as Record<string, number>; } catch { /* no baseline saved */ }
+  return Response.json({ ...bundle, comments, shoeMileageBase, user: { username: user.username, role: user.role } }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
+  const user = await currentUser();
+  if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
   const incoming = await request.json() as Partial<Bundle> & { kind?: string };
   if (incoming.kind === "bootstrap") {
     if (!(await hasMigratedLegacyData())) {
@@ -30,12 +38,16 @@ export async function POST(request: Request) {
       }
       await markLegacyDataMigrated();
     }
-    return Response.json(await getBundle());
+    const [saved, comments] = await Promise.all([getBundle(), getComments()]);
+    return Response.json({ ...saved, comments, user: { username: user.username, role: user.role } });
   }
   return Response.json({ error: "Unsupported request." }, { status: 400 });
 }
 
 export async function PUT(request: Request) {
+  const user = await currentUser();
+  if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
   const bundle = await request.json() as Bundle;
-  return Response.json(await saveBundle(bundle));
+  const [saved, comments] = await Promise.all([saveBundle(bundle), getComments()]);
+  return Response.json({ ...saved, comments, user: { username: user.username, role: user.role } });
 }

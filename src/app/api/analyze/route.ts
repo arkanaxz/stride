@@ -1,11 +1,34 @@
+import { currentUser } from "@/lib/auth";
+import { getBundle, saveBundle } from "@/lib/database";
+import { getProviderKey } from "@/lib/secrets";
+import type { Run } from "@/lib/types";
+
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-type RequestBody = { provider: "openai" | "gemini" | "anthropic"; apiKey: string; model: string; prompt: string };
+type RequestBody = { runId?: number };
+
+function pace(run: Run) { const value = run.distance ? run.duration / run.distance : 0; return `${Math.floor(value)}:${String(Math.round(value % 1 * 60)).padStart(2, "0")}`; }
+function zones(lthr: number) {
+  const bpm = (percent: number) => Math.round(lthr * percent / 100);
+  return `Z1 below ${bpm(85)}; Z2 ${bpm(85)}–${bpm(89)}; Z3 ${bpm(90)}–${bpm(94)}; Z4 ${bpm(95)}–${bpm(99)}; Z5a ${bpm(100)}–${bpm(102)}; Z5b ${bpm(103)}–${bpm(106)}; Z5c above ${bpm(106)} bpm. These are LTHR-based running zones.`;
+}
 
 export async function POST(request: Request) {
-  const { provider, apiKey, model, prompt } = await request.json() as RequestBody;
-  if (!apiKey?.trim() || !prompt?.trim()) return Response.json({ error: "Choose a provider and enter its API key." }, { status: 400 });
+  const user = await currentUser();
+  if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
+  const { runId } = await request.json() as RequestBody;
+  if (!Number.isInteger(runId)) return Response.json({ error: "Choose a saved run to analyze." }, { status: 400 });
+  const bundle = await getBundle();
+  const run = bundle.runs.find((item) => item.id === runId);
+  if (!run) return Response.json({ error: "That run could not be found." }, { status: 404 });
+  const provider = bundle.preferences.provider;
+  const model = bundle.preferences.model;
+  const apiKey = await getProviderKey(provider);
+  if (!apiKey) return Response.json({ error: `Save a ${provider} API key in Admin Settings before analyzing runs.` }, { status: 400 });
+  const lthr = Number(bundle.preferences.lthr);
+  const zoneContext = Number.isFinite(lthr) && lthr > 0 ? `Runner’s LTHR: ${lthr} bpm. Use these zones: ${zones(lthr)} Compare average and maximum heart rate with the zones, but do not infer time-in-zone from summary HR.` : "The runner's LTHR and heart-rate zones are not configured. Do not guess them.";
+  const prompt = `You are a direct, evidence-based running coach. Give honest, specific, unsugar-coated but constructive feedback. Do not diagnose injuries. Distinguish facts from uncertainty.\n\nHeart-rate context: ${zoneContext}\n\nRun: ${JSON.stringify({ ...run, pace: `${pace(run)} min/km` })}\n\nBe concise: what went well, what needs attention, ITB/recovery signal, and next-session recommendation.`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 280 * 1000);
   try {
@@ -38,7 +61,9 @@ export async function POST(request: Request) {
     } else {
       return Response.json({ error: "Unsupported AI provider." }, { status: 400 });
     }
-    return Response.json({ answer, model });
+    const updatedRuns = bundle.runs.map((item) => item.id === runId ? { ...item, analysis: answer } : item);
+    await saveBundle({ runs: updatedRuns });
+    return Response.json({ answer, model, provider });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "AbortError";
     return Response.json({ error: timeout ? "The analysis took too long. Try a faster model or retry later." : "Could not connect to the selected AI provider." }, { status: timeout ? 504 : 502 });

@@ -43,6 +43,9 @@ async function ensureReady() {
         "CREATE TABLE IF NOT EXISTS workouts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer')",
+        "CREATE TABLE IF NOT EXISTS run_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, username TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
       ];
       if (cloud) for (const sql of schema) await cloud.execute(sql);
       else local?.exec(schema.join(";"));
@@ -85,6 +88,69 @@ export async function getBundle(): Promise<Bundle> {
     preferences: { ...defaultPreferences, ...settings } as Preferences,
     storage: "Turso",
   };
+}
+
+export async function getStoredAccount(username: string) {
+  await ensureReady();
+  if (cloud) {
+    const result = await cloud.execute({ sql: "SELECT id, username, salt, password_hash, role FROM users WHERE username = ? COLLATE NOCASE LIMIT 1", args: [username] });
+    return result.rows[0] as unknown as { id: string; username: string; salt: string; password_hash: string; role: string } | undefined;
+  }
+  return local!.prepare("SELECT id, username, salt, password_hash, role FROM users WHERE username = ? COLLATE NOCASE LIMIT 1").get(username) as { id: string; username: string; salt: string; password_hash: string; role: string } | undefined;
+}
+
+export async function listAccounts() {
+  await ensureReady();
+  if (cloud) return (await cloud.execute("SELECT id, username, role FROM users ORDER BY username")).rows as unknown as { id: string; username: string; role: string }[];
+  return local!.prepare("SELECT id, username, role FROM users ORDER BY username").all() as { id: string; username: string; role: string }[];
+}
+
+export async function createAccount(id: string, username: string, salt: string, passwordHash: string) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: "INSERT INTO users (id, username, salt, password_hash, role) VALUES (?, ?, ?, ?, 'viewer')", args: [id, username, salt, passwordHash] });
+  else local!.prepare("INSERT INTO users (id, username, salt, password_hash, role) VALUES (?, ?, ?, ?, 'viewer')").run(id, username, salt, passwordHash);
+}
+
+export async function deleteAccount(id: string) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: "DELETE FROM users WHERE id = ?", args: [id] });
+  else local!.prepare("DELETE FROM users WHERE id = ?").run(id);
+}
+
+export async function getComments() {
+  await ensureReady();
+  if (cloud) return (await cloud.execute("SELECT id, run_id AS runId, username, text, created_at AS createdAt FROM run_comments ORDER BY created_at, id")).rows as unknown as import("@/lib/types").RunComment[];
+  return local!.prepare("SELECT id, run_id AS runId, username, text, created_at AS createdAt FROM run_comments ORDER BY created_at, id").all() as import("@/lib/types").RunComment[];
+}
+
+export async function addComment(runId: number, username: string, text: string) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: "INSERT INTO run_comments (run_id, username, text) VALUES (?, ?, ?)", args: [runId, username, text] });
+  else local!.prepare("INSERT INTO run_comments (run_id, username, text) VALUES (?, ?, ?)").run(runId, username, text);
+}
+
+export async function removeComment(id: number, username: string, isAdmin: boolean) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: isAdmin ? "DELETE FROM run_comments WHERE id = ?" : "DELETE FROM run_comments WHERE id = ? AND username = ?", args: isAdmin ? [id] : [id, username] });
+  else local!.prepare(isAdmin ? "DELETE FROM run_comments WHERE id = ?" : "DELETE FROM run_comments WHERE id = ? AND username = ?").run(...(isAdmin ? [id] : [id, username]));
+}
+
+export async function getSecret(key: string) {
+  await ensureReady();
+  if (cloud) return (await cloud.execute({ sql: "SELECT value FROM secrets WHERE key = ?", args: [key] })).rows[0]?.value as string | undefined;
+  return (local!.prepare("SELECT value FROM secrets WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+}
+
+export async function setSecret(key: string, value: string) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: "INSERT INTO secrets (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", args: [key, value] });
+  else local!.prepare("INSERT INTO secrets (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+}
+
+export async function deleteSecret(key: string) {
+  await ensureReady();
+  if (cloud) await cloud.execute({ sql: "DELETE FROM secrets WHERE key = ?", args: [key] });
+  else local!.prepare("DELETE FROM secrets WHERE key = ?").run(key);
 }
 
 export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {

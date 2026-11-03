@@ -21,6 +21,7 @@ export type Run = {
   effort?: number | null;
   shoes?: string;
   notes?: string;
+  analysis?: string;
 };
 
 export type Workout = {
@@ -48,6 +49,8 @@ export type Preferences = {
   provider: "openai" | "gemini" | "anthropic";
   model: string;
   lthr?: number | null;
+  notificationLeadHours?: number;
+  notificationsEnabled?: boolean;
 };
 
 export type Bundle = {
@@ -56,4 +59,9 @@ export type Bundle = {
   meta: Record<string, string>;
   preferences: Preferences;
   storage?: "Turso" | "SQLite";
+  user?: { username: string; role: "admin" | "viewer" };
+  comments?: RunComment[];
+  shoeMileageBase?: Record<string, number>;
 };
+
+export type RunComment = { id: number; runId: number; username: string; text: string; createdAt: string };
