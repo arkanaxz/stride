@@ -70,6 +70,57 @@ export async function POST(request: Request) {
       return Response.json({ ...result, importedRuns: importedRuns.length, importedWorkouts: 0 });
     }
     const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+    const sm2smSheet = workbook.Sheets["18-Week Plan"];
+    if (sm2smSheet) {
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(sm2smSheet, { header: 1, raw: true, defval: "" });
+      const mondayValue = value(rows[6] || [], 1);
+      const mondayDate = dateString(mondayValue);
+      if (!mondayDate) return Response.json({ error: "The 18-Week Plan sheet is missing its first Monday date." }, { status: 400 });
+      const dayColumns = [
+        { day: "Mon", column: 4, offset: 0 },
+        { day: "Tue", column: 5, offset: 1 },
+        { day: "Thu", column: 7, offset: 3 },
+        { day: "Sat", column: 9, offset: 5 },
+        { day: "Sun", column: 10, offset: 6 },
+      ];
+      const importedPlan: Workout[] = rows.slice(6, 24).flatMap((row, weekIndex) => {
+        const week = numeric(value(row, 0)) || weekIndex + 1;
+        const phase = text(value(row, 2));
+        const mission = text(value(row, 3));
+        const progression = text(value(row, 14));
+        return dayColumns.flatMap(({ day, column, offset }) => {
+          const details = text(value(row, column));
+          if (!details || /^(rest|strength|mobility)\b/i.test(details)) return [];
+          const date = new Date(`${mondayDate}T00:00:00Z`);
+          date.setUTCDate(date.getUTCDate() + weekIndex * 7 + offset);
+          const workoutDate = date.toISOString().slice(0, 10);
+          const headline = details.split(/\r?\n/)[0].trim();
+          return [{
+            id: `sm2sm-2027-gm-${workoutDate}-${day.toLowerCase()}`,
+            week,
+            phase,
+            day,
+            date: workoutDate,
+            session: `${day}: ${headline}`,
+            target: details,
+            notes: [mission, progression].filter(Boolean).join("\n\n"),
+            status: "planned",
+            dateShiftable: false,
+          }];
+        });
+      });
+      if (!importedPlan.length) return Response.json({ error: "No running workouts were found on the 18-Week Plan sheet." }, { status: 400 });
+      const current = await getBundle();
+      const raceDate = new Date(`${mondayDate}T00:00:00Z`);
+      raceDate.setUTCDate(raceDate.getUTCDate() + 17 * 7 + 6);
+      const raceDateString = raceDate.toISOString().slice(0, 10);
+      const result = await saveBundle({
+        plan: importedPlan,
+        preferences: { ...current.preferences, raceDate: raceDateString, lthr: 179 },
+        meta: { ...current.meta, title: "SM2SM 2027 Half Marathon · Sub 1:45", raceDate: raceDateString, goalFinish: "1:44:59", goalPace: "4:58/km" },
+      });
+      return Response.json({ ...result, importedRuns: 0, importedWorkouts: importedPlan.length });
+    }
     const runningEraSheet = workbook.Sheets["Training Log"];
     if (runningEraSheet) {
       const rows = XLSX.utils.sheet_to_json<unknown[]>(runningEraSheet, { header: 1, raw: true, defval: "" });
