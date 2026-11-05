@@ -1,0 +1,18 @@
+name: Validate Stride UI improvements
+on:
+  push:
+    branches: [feat/run-history-shoes-live-pace]
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check key UI changes
+        run: |
+          node -e "const fs=require('fs');const d=fs.readFileSync('src/components/dashboard.tsx','utf8');const h=fs.readFileSync('src/components/run-history-table.tsx','utf8');if(!d.includes('canonicalShoeName')||!d.includes('live-pace-readout')||!d.includes('Save shoe names')||!h.includes('column-resize')||!h.includes('Choose columns'))process.exit(1)"
