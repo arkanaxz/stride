@@ -106,7 +106,7 @@ export default function RunHistoryTable({ runs, onOpen }: { runs: Run[]; onOpen:
       }}>Reset layout</button>
     </div>}
     <div className="history-table-scroll" tabIndex={0} role="region" aria-label="Scrollable run history table">
-      <table className="custom-run-table">
+      <table className="custom-run-table" style={{ width: selectedColumns.reduce((total, column) => total + width(column), 0), minWidth: "100%" }}>
         <colgroup>{selectedColumns.map(col => <col key={col.key} style={{ width: width(col) }}/>)}</colgroup>
         <thead><tr>{selectedColumns.map(col =>
           <th key={col.key} scope="col"><span>{col.label}</span><span className="column-resize" role="separator" aria-label={"Resize " + col.label} title="Drag to resize" onPointerDown={event => {
