@@ -5,6 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
 import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
+import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
 
 const defaultPreferences: Preferences = {
   defaultLocation: "Lapu-Lapu City, Cebu, Philippines",
@@ -42,6 +43,7 @@ async function ensureReady() {
       const schema = [
         "CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS workouts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS workout_plan_backups (migration_key TEXT NOT NULL, workout_id TEXT NOT NULL, payload TEXT NOT NULL, saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (migration_key, workout_id))",
         "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer')",
@@ -107,6 +109,101 @@ export async function ensureStrengthPlan() {
     local!.exec("ROLLBACK");
     throw error;
   }
+}
+
+
+/**
+ * One-time server-side replacement of the ACTIVE Training Block from the
+ * user's latest workbook. Before replacing any entry, archive every original
+ * workout payload into workout_plan_backups in the same SQLite transaction.
+ *
+ * Completed/cancelled statuses on matching sessions are carried forward.
+ * Completed/cancelled sessions not in the workbook are preserved in the backup
+ * (not shown as obsolete Training Block rows). Historical RUNS, AI reviews,
+ * comments, secrets, shoe mileage and unrelated preferences are never touched.
+ *
+ * This is intentionally NOT an Excel import operation.
+ */
+export async function ensureAuthoritativeWorkbookPlan(): Promise<void> {
+  await ensureReady();
+  const workbook = authoritativeWorkouts(); // Validate hash, count and ID uniqueness before any SQL.
+  const markerSql = "SELECT key FROM metadata WHERE key = ? LIMIT 1";
+  const markerArgs = [AUTHORITATIVE_PLAN_KEY];
+
+  if (cloud) {
+    const alreadyApplied = await cloud.execute({ sql: markerSql, args: markerArgs });
+    if (alreadyApplied.rows.length) return;
+
+    const before = await cloud.execute("SELECT id, payload FROM workouts");
+    const prior = (before.rows as unknown as { id: string; payload: string }[])
+      .map((record) => json<Workout>(record.payload, { id: record.id, date: "", week: 0, session: "" }));
+    const updated = preserveMatchedStatus(workbook, prior);
+    const sql: { sql: string; args?: (string | number | null)[] }[] = [
+      {
+        sql: "INSERT OR IGNORE INTO workout_plan_backups (migration_key, workout_id, payload) SELECT ?, id, payload FROM workouts",
+        args: [AUTHORITATIVE_PLAN_KEY],
+      },
+      { sql: "DELETE FROM workouts" },
+      ...updated.map((item) => ({
+        sql: "INSERT INTO workouts (id, payload) VALUES (?, ?)",
+        args: [String(item.id), JSON.stringify(item)],
+      })),
+      {
+        sql: "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+        args: [AUTHORITATIVE_PLAN_KEY, JSON.stringify("Replaced active Training Block with 115 workbook sessions; previous workouts archived.")],
+      },
+    ];
+    await cloud.batch(sql, "write");
+    return;
+  }
+
+  local!.exec("BEGIN IMMEDIATE");
+  try {
+    if (local!.prepare(markerSql).get(AUTHORITATIVE_PLAN_KEY)) {
+      local!.exec("COMMIT");
+      return;
+    }
+    const before = local!.prepare("SELECT id, payload FROM workouts").all() as { id: string; payload: string }[];
+    const prior = before.map((record) => json<Workout>(record.payload, { id: record.id, date: "", week: 0, session: "" }));
+    const updated = preserveMatchedStatus(workbook, prior);
+    const backup = local!.prepare("INSERT OR IGNORE INTO workout_plan_backups (migration_key, workout_id, payload) VALUES (?, ?, ?)");
+    for (const record of before) backup.run(AUTHORITATIVE_PLAN_KEY, record.id, record.payload);
+    local!.prepare("DELETE FROM workouts").run();
+    const insert = local!.prepare("INSERT INTO workouts (id, payload) VALUES (?, ?)");
+    for (const item of updated) insert.run(String(item.id), JSON.stringify(item));
+    local!.prepare("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING").run(
+      AUTHORITATIVE_PLAN_KEY,
+      JSON.stringify("Replaced active Training Block with 115 workbook sessions; previous workouts archived."),
+    );
+    local!.exec("COMMIT");
+  } catch (error) {
+    local!.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function preserveMatchedStatus(next: Workout[], previous: Workout[]): Workout[] {
+  const byId = new Map(previous.filter((item) => item.id != null).map((item) => [String(item.id), item]));
+  const keyOf = (item: Workout) => {
+    const day = (item.day || item.session.split(":")[0] || "").slice(0, 3).toLowerCase();
+    return item.date + "|" + day + "|" + Boolean(item.strength);
+  };
+  const byDay = new Map<string, Workout>();
+  for (const item of previous) {
+    const key = keyOf(item);
+    const prev = byDay.get(key);
+    if (!prev || item.status === "completed" || (item.status === "cancelled" && prev.status !== "completed")) {
+      byDay.set(key, item);
+    }
+  }
+  return next.map((item) => {
+    const previousEntry = byId.get(String(item.id)) ?? byDay.get(keyOf(item));
+    if (previousEntry?.status === "completed" || previousEntry?.status === "cancelled") {
+      // The new prescription always comes from the workbook; only status survives.
+      return { ...item, status: previousEntry.status };
+    }
+    return item;
+  });
 }
 
 export async function getBundle(): Promise<Bundle> {
