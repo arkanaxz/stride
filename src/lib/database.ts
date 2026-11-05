@@ -416,16 +416,6 @@ export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {
   if (!cloud) {
     local!.exec("BEGIN IMMEDIATE");
     try {
-      if (bundle.runs) {
-        local!.exec("DELETE FROM runs");
-        const insert = local!.prepare("INSERT INTO runs (payload) VALUES (?)");
-        const insertWithId = local!.prepare("INSERT INTO runs (id, payload) VALUES (?, ?)");
-        for (const run of bundle.runs) {
-          const { id: _id, ...payload } = run;
-          if (Number.isInteger(run.id) && Number(run.id) > 0) insertWithId.run(Number(run.id), JSON.stringify(payload));
-          else insert.run(JSON.stringify(payload));
-        }
-      }
       if (bundle.plan) {
         local!.exec("DELETE FROM workouts");
         const insert = local!.prepare("INSERT INTO workouts (id, payload) VALUES (?, ?)");
@@ -448,14 +438,6 @@ export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {
   }
 
   const statements: { sql: string; args?: (string | number | null)[] }[] = [];
-  if (bundle.runs) {
-    statements.push({ sql: "DELETE FROM runs" });
-    for (const run of bundle.runs) {
-      const { id, ...payload } = run;
-      if (Number.isInteger(id) && Number(id) > 0) statements.push({ sql: "INSERT INTO runs (id, payload) VALUES (?, ?)", args: [Number(id), JSON.stringify(payload)] });
-      else statements.push({ sql: "INSERT INTO runs (payload) VALUES (?)", args: [JSON.stringify(payload)] });
-    }
-  }
   if (bundle.plan) {
     statements.push({ sql: "DELETE FROM workouts" });
     for (const [index, workout] of bundle.plan.entries()) statements.push({ sql: "INSERT INTO workouts (id, payload) VALUES (?, ?)", args: [String(workout.id ?? `workout-${index}`), JSON.stringify(workout)] });
