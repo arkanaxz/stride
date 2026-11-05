@@ -305,11 +305,23 @@ export default function Dashboard({ initialPage = "dashboard" }: { initialPage?:
     if (!file) return;
     setUploading(true); setError("");
     try {
+      // Preview and explicitly confirm the import before touching Turso.
+      // Completed workouts and all logged runs remain in the database.
+      const previewForm = new FormData(); previewForm.set("file", file); previewForm.set("preview", "true");
+      const previewResponse = await fetch("/api/import", { method: "POST", body: previewForm });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(preview.error || "Could not preview the workbook.");
+      const isPlan = Number(preview.importedWorkouts || 0) > 0;
+      const question = isPlan
+        ? `Update the training plan using ${file.name}?\n\n${preview.importedWorkouts} revised sessions will replace the existing PLANNED schedule.\n\nPreserved: ${preview.preservedCompleted} completed workouts, ${preview.preservedCancelled || 0} cancelled workouts, and ALL ${preview.preservedRuns} logged runs (including notes and AI reviews).\n\nContinue?`
+        : `Import ${preview.importedRuns} new runs from ${file.name}?\n\nYour existing ${preview.preservedRuns} logged runs will be preserved.\n\nContinue?`;
+      if (!window.confirm(question)) return;
       const form = new FormData(); form.set("file", file);
       const response = await fetch("/api/import", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Import failed.");
-      setBundle({ ...result, user: bundle.user, comments: bundle.comments, shoeMileageBase: bundle.shoeMileageBase }); setToast(`Imported ${result.importedRuns} runs and ${result.importedWorkouts} workouts`);
+      setBundle({ ...result, user: bundle.user, comments: bundle.comments, shoeMileageBase: bundle.shoeMileageBase });
+      setToast(isPlan ? `Updated ${result.importedWorkouts} planned sessions; preserved ${result.preservedCompleted} completed workouts and ${result.preservedRuns} logged runs` : `Imported ${result.importedRuns} new runs`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Import failed."); }
     finally { setUploading(false); }
   }
