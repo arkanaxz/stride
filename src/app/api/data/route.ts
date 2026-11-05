@@ -1,5 +1,5 @@
 import { currentUser } from "@/lib/auth";
-import { ensureStrengthPlan, getBundle, getComments, saveBundle } from "@/lib/database";
+import { ensureAuthoritativeWorkbookPlan, getBundle, getComments, saveBundle } from "@/lib/database";
 import type { Bundle } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await currentUser();
   if (!user) return Response.json({ error: "Please sign in." }, { status: 401 });
-  await ensureStrengthPlan();
+  await ensureAuthoritativeWorkbookPlan();
   const [bundle, comments] = await Promise.all([getBundle(), getComments()]);
   let shoeMileageBase: Record<string, number> = {};
   try { shoeMileageBase = JSON.parse(String(bundle.meta.shoeMileageBase || "{}")) as Record<string, number>; } catch { /* no baseline saved */ }
