@@ -22,13 +22,13 @@ test("revised 82-session plan never rewrites a completed workout", () => {
   assert.equal(existing[0].status, "completed");
 });
 
-test("match completed records when revised workbook changes session date", () => {
+test("keep old completed workout AND revised planned session if the date changes", () => {
   const oldCompleted = workout(1, "Tue", "2026-11-03", "completed");
   const newDate = workout(1, "Tue", "2026-11-10", "planned");
   const result = mergeRevisedPlan([oldCompleted], [newDate]);
-  assert.equal(result.plan.length, 1);
-  assert.equal(result.plan[0].date, "2026-11-03");
-  assert.equal(result.plan[0].status, "completed");
+  assert.equal(result.plan.length, 2);
+  assert.equal(result.plan.some(w => w.date === "2026-11-03" && w.status === "completed"), true);
+  assert.equal(result.plan.some(w => w.date === "2026-11-10" && w.status === "planned"), true);
 });
 
 test("replace planned targets while preserving cancellation statuses", () => {

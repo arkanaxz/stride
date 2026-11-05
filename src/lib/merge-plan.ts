@@ -8,7 +8,7 @@ export type PlanMergeResult = {
   replacedPlanned: number;
 };
 
-// Match a revised workbook by stable ID first, then date/day or week/day.
+// Match a revised workbook by stable ID first, then same date/day.
 // A completed workout is historical evidence: it must NEVER be rewritten by a plan import.
 function dayOf(workout: Workout): string {
   const raw = String(workout.day || workout.session.match(/^([A-Za-z]{3,9}):/)?.[1] || "");
@@ -25,9 +25,9 @@ function findExisting(workouts: Workout[], imported: Workout, used: Set<number>)
   const priority = (status?: string) => status === "completed" ? 0 : status === "cancelled" ? 1 : 2;
   byDate.sort((a, b) => priority(a.workout.status) - priority(b.workout.status));
   if (byDate.length) return byDate[0].index;
-  const byWeekDay = available.filter(({ workout }) => matches(workout) && workout.week === imported.week);
-  byWeekDay.sort((a, b) => priority(a.workout.status) - priority(b.workout.status));
-  return byWeekDay[0]?.index ?? -1;
+  // A matching week/day with a DIFFERENT date is not the same occurrence:
+  // preserve the completed historical workout and keep the newly scheduled run.
+  return -1;
 }
 
 export function mergeRevisedPlan(existing: Workout[], revised: Workout[]): PlanMergeResult {
