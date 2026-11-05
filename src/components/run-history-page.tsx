@@ -29,9 +29,34 @@ export default function RunHistoryPage({ runs }: { runs: Run[] }) {
   const [search, setSearch] = useState("");
   const filteredRuns = useMemo(() => [...runs].sort((a, b) => b.date.localeCompare(a.date)).filter((run) => !search.trim() || Object.values(run).some((value) => JSON.stringify(value ?? "").toLowerCase().includes(search.trim().toLowerCase()))), [runs, search]);
 
+  function exportRunHistory() {
+    const keys: (keyof Run)[] = [
+      "date", "name", "type", "distance", "duration", "avgHr", "maxHr",
+      "sleep", "pain", "painDuring", "painNext", "effort",
+      "weatherStart", "weatherEnd", "weatherDuring", "weatherRoute",
+      "location", "startTime", "endTime", "shoes", "notes", "analysis", "analysisHistory",
+    ];
+    const csvField = (input: unknown) => {
+      const value = input === null || input === undefined ? "" : typeof input === "object" ? JSON.stringify(input) : String(input);
+      return /[",\r\n]/.test(value) ? '"' + value.replaceAll('"', '""') + '"' : value;
+    };
+    const rows = [keys.join(","), ...[...runs].sort((a, b) => b.date.localeCompare(a.date))
+      .map((run) => keys.map((key) => csvField(run[key])).join(","))];
+    const file = new Blob(["\uFEFF" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "stride-run-history-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+
   return <main className="shell history-page">
     <header className="review-page-head"><a className="brand" href="/"><span className="brand-mark">↗</span><span>stride<span className="lime">.</span></span></a><div className="review-header-actions"><ThemeToggle/><a className="btn" href="/">Back to dashboard</a></div></header>
-    <div className="hero"><div><div className="eyebrow">YOUR TRAINING LOG</div><h1>Run history</h1><p className="muted">{filteredRuns.length} of {runs.length} runs · Select a run to expand its details.</p></div></div>
+    <div className="hero history-hero"><div><div className="eyebrow">YOUR TRAINING LOG</div><h1>Run history</h1><p className="muted">{filteredRuns.length} of {runs.length} runs · Select a run to expand its details.</p></div><button type="button" className="btn primary history-export" onClick={exportRunHistory} disabled={runs.length === 0}>Export run history (CSV)</button></div>
     <label className="history-search">Search runs<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, date, shoes, notes…" /></label>
     <section className="history-run-list">{filteredRuns.map((run, index) => {
       const fields: [string, string][] = [
