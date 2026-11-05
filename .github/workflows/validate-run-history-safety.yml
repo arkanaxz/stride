@@ -1,0 +1,16 @@
+name: Verify Stride run-history safety
+on:
+  push:
+    branches: [fix/append-only-run-history-recovery]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/run-history-safety.test.mjs
+      - run: npm run build
