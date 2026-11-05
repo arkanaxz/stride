@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
+import { canonicalMileageBase, canonicalShoe } from "@/lib/shoes";
 import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
 import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
 
@@ -346,6 +347,50 @@ export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {
   }
   if (statements.length) await cloud.batch(statements, "write");
   return getBundle();
+}
+
+
+/**
+ * Rename one shoe using targeted SQL, never an entire-run-table rewrite.
+ * Accumulate starting mileage if the destination name already exists.
+ * Historical runs retain all fields except the shoe spelling.
+ */
+export async function renameShoeSafely(oldNameInput: string, newNameInput: string) {
+  await ensureReady();
+  const oldName = canonicalShoe(oldNameInput);
+  const newName = canonicalShoe(newNameInput);
+  if (!oldName.trim() || oldName === "Unspecified" || !newName.trim() || newName === "Unspecified" || newName.length > 100) {
+    throw new Error("Enter a valid shoe name (up to 100 characters).");
+  }
+  const aliases = oldName === "Superblast 2" ? ["superblast 2", "superlast 2"] : [oldName.toLowerCase()];
+  const current = await getBundle();
+  const initial = canonicalMileageBase(JSON.parse(String(current.meta.shoeMileageBase || "{}")) as Record<string, number>);
+  if (oldName !== newName) {
+    initial[newName] = (initial[newName] || 0) + (initial[oldName] || 0);
+    delete initial[oldName];
+  }
+  const conditions = aliases.map(() => "?").join(", ");
+  const updateSql = "UPDATE runs SET payload = json_set(payload, '$.shoes', ?) WHERE lower(trim(COALESCE(json_extract(payload, '$.shoes'), ''))) IN (" + conditions + ")";
+  const updateArgs = [newName, ...aliases];
+  const baselineJson = JSON.stringify(initial);
+  const metadataSql = "INSERT INTO metadata (key, value) VALUES ('shoeMileageBase', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value";
+  if (cloud) {
+    await cloud.batch([
+      { sql: updateSql, args: updateArgs },
+      { sql: metadataSql, args: [baselineJson] },
+    ], "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      local!.prepare(updateSql).run(...updateArgs);
+      local!.prepare(metadataSql).run(baselineJson);
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  return { oldName, newName, mileageBase: initial };
 }
 
 export async function hasMigratedLegacyData() {
