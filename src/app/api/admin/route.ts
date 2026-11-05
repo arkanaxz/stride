@@ -1,7 +1,8 @@
 import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { currentUser, registerViewer } from "@/lib/auth";
-import { deleteAccount, deleteSecret, getBundle, getSecret, listAccounts, saveBundle, setSecret } from "@/lib/database";
+import { deleteAccount, deleteSecret, getBundle, getSecret, listAccounts, renameShoeSafely, saveBundle, setSecret } from "@/lib/database";
 import type { Preferences } from "@/lib/types";
+import { canonicalMileageBase } from "@/lib/shoes";
 
 const providers = ["openai", "gemini", "anthropic"] as const;
 function encryptionKey() {
@@ -26,7 +27,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser();
   if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { action?: string; username?: string; password?: string; id?: string; provider?: string; apiKey?: string; mileage?: Record<string, number>; preferences?: Preferences };
+  const body = await request.json().catch(() => ({})) as { action?: string; username?: string; password?: string; id?: string; provider?: string; apiKey?: string; mileage?: Record<string, number>; preferences?: Preferences; oldName?: string; newName?: string };
   try {
     if (body.action === "create-account") {
       const username = body.username?.trim() || "";
@@ -49,9 +50,16 @@ export async function POST(request: Request) {
       await deleteSecret(`api-key:${body.provider}`);
       return Response.json({ saved: false });
     }
+    if (body.action === "rename-shoe") {
+      const oldName = String(body.oldName || "").trim();
+      const newName = String(body.newName || "").trim();
+      if (!oldName || !newName || newName.length > 100 || newName === "Unspecified") return Response.json({ error: "Enter a valid shoe name." }, { status: 400 });
+      const result = await renameShoeSafely(oldName, newName);
+      return Response.json({ saved: true, ...result });
+    }
     if (body.action === "save-mileage") {
       const current = await getBundle();
-      const safe = Object.fromEntries(Object.entries(body.mileage || {}).map(([shoe, value]) => [shoe, Math.max(0, Number(value) || 0)]));
+      const safe = canonicalMileageBase(body.mileage || {});
       await saveBundle({ meta: { ...current.meta, shoeMileageBase: JSON.stringify(safe) } });
       return Response.json({ saved: true });
     }
