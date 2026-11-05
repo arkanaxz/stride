@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
+import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
 
 const defaultPreferences: Preferences = {
   defaultLocation: "Lapu-Lapu City, Cebu, Philippines",
@@ -66,6 +67,46 @@ function getLocalBundle(): Bundle {
     preferences: { ...defaultPreferences, ...settings } as Preferences,
     storage: "SQLite",
   };
+}
+
+
+/**
+ * Add strength sessions from the revised SM2SM workbook exactly once.
+ * This uses INSERT-only SQL; it never deletes or updates a Run, Workout,
+ * preference, review, or secret. A marker prevents restoring workouts the
+ * user intentionally removes afterward.
+ */
+export async function ensureStrengthPlan() {
+  await ensureReady();
+  if (cloud) {
+    const found = await cloud.execute({ sql: "SELECT key FROM metadata WHERE key = ? LIMIT 1", args: [STRENGTH_PLAN_SEED_KEY] });
+    if (found.rows.length) return;
+    const statements = strengthPlanWorkouts.map((workout) => ({
+      sql: "INSERT INTO workouts (id, payload) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
+      args: [String(workout.id), JSON.stringify(workout)],
+    }));
+    statements.push({
+      sql: "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+      args: [STRENGTH_PLAN_SEED_KEY, JSON.stringify("added from 18-Week Plan and Strength A + B workbook sheets")],
+    });
+    await cloud.batch(statements, "write");
+    return;
+  }
+
+  local!.exec("BEGIN IMMEDIATE");
+  try {
+    const existing = local!.prepare("SELECT key FROM metadata WHERE key = ? LIMIT 1").get(STRENGTH_PLAN_SEED_KEY);
+    if (!existing) {
+      const statement = local!.prepare("INSERT INTO workouts (id, payload) VALUES (?, ?) ON CONFLICT(id) DO NOTHING");
+      for (const workout of strengthPlanWorkouts) statement.run(String(workout.id), JSON.stringify(workout));
+      local!.prepare("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+        .run(STRENGTH_PLAN_SEED_KEY, JSON.stringify("added from 18-Week Plan and Strength A + B workbook sheets"));
+    }
+    local!.exec("COMMIT");
+  } catch (error) {
+    local!.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function getBundle(): Promise<Bundle> {
