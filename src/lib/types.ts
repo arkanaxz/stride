@@ -19,6 +19,7 @@ export type Run = {
   painDuring?: string;
   painNext?: string;
   effort?: number | null;
+  rpe?: number | null;
   shoes?: string;
   notes?: string;
   analysis?: string;
