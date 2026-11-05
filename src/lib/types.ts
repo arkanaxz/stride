@@ -57,6 +57,7 @@ export type Preferences = {
   planRowCount: number;
   provider: "openai" | "gemini" | "anthropic";
   model: string;
+  providerModels?: Partial<Record<"openai" | "gemini" | "anthropic", string>>;
   lthr?: number | null;
   notificationLeadHours?: number;
   notificationsEnabled?: boolean;
@@ -73,4 +74,10 @@ export type Bundle = {
   shoeMileageBase?: Record<string, number>;
 };
 
-export type RunComment = { id: number; runId: number; username: string; text: string; createdAt: string };
+export type RunComment = {
+  id: number;
+  runId: number;
+  username: string;
+  text: string;
+  createdAt: string;
+};
