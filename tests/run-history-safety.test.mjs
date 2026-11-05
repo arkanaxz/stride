@@ -22,7 +22,7 @@ test("data PUT refuses stale clients and updates only changed run rows", () => {
   assert.match(db,/INSERT INTO run_history_backups/);
   const safe = db.slice(db.indexOf("export async function updateRunHistorySafely"),db.indexOf("export async function appendRunHistorySafely"));
   assert.doesNotMatch(safe,/DELETE FROM runs"/);
-  assert.doesNotMatch(safe,/DELETE FROM runs[^\n]*[^W]/);
+  assert.match(safe,/DELETE FROM runs WHERE id = \\? AND payload = \\?/);
 });
 
 test("AI analyses read current run after provider call and do not replace other runs", () => {
