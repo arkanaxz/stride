@@ -43,3 +43,22 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 @media(max-width:680px){.review-page-head{gap:12px;flex-wrap:wrap}.review-header-actions{flex-wrap:wrap;justify-content:flex-end}.theme-toggle{font-size:11px}}
 @media(prefers-reduced-motion:reduce){html,body,.card,.btn,input,select,textarea{transition:none}}
 .status.cancelled{color:var(--muted);border-style:dashed}.training-card td:last-child .btn{margin:3px 3px 3px 0;padding:6px 9px;font-size:11px}.training-card td:last-child{min-width:170px}
+
+/* Run History belongs above search and result cards; shared .shell order had
+   incorrectly moved the hero below the list. */
+.history-page>.review-page-head{order:0}
+.history-page>.history-hero{order:1;align-items:center;margin:4px 0 20px}
+.history-page>.history-search{order:2}
+.history-page>.history-run-list{order:3}
+.history-export{align-self:center;flex-shrink:0}
+.history-page .history-run-list{width:100%}
+
+/* Training Block pagination and strength prescriptions. */
+.plan-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:13px 0 0}
+.plan-pagination>span{font-size:11px;color:var(--muted)}
+.plan-pagination>div{display:flex;gap:8px}
+.plan-pagination .btn:disabled{opacity:.43;cursor:not-allowed}
+.strength-prescription{margin-top:7px}
+.strength-prescription summary{font-size:11px;cursor:pointer;color:var(--mint);font-weight:700}
+.strength-prescription>div{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);line-height:1.65;white-space:pre-line;min-width:240px;max-width:550px;font-size:11px}
+@media(max-width:680px){.history-page>.history-hero{align-items:flex-start}.history-export{align-self:flex-start}.plan-pagination{align-items:flex-start;flex-direction:column}.plan-pagination>div{width:100%}.plan-pagination .btn{flex:1}}

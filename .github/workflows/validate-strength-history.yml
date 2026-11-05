@@ -1,0 +1,16 @@
+name: Validate history, strength and pagination
+on:
+  push:
+    branches: [feat/history-export-strength-plan-pagination]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --experimental-strip-types --test tests/strength-plan.test.mjs
+      - run: npm run build
