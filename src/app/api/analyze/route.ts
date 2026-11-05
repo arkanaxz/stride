@@ -1,5 +1,5 @@
 import { currentUser } from "@/lib/auth";
-import { getBundle, saveBundle } from "@/lib/database";
+import { getBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
 import { getProviderKey } from "@/lib/secrets";
 import type { AnalysisReview, Run } from "@/lib/types";
 
@@ -83,15 +83,20 @@ export async function POST(request: Request) {
     }
     answer = answer.replace(/\\([*#_])/g, "$1").replace(/\\\r?\n/g, "\n").replace(/\\n/g, "\n").trim();
     const review: AnalysisReview = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), provider, model, text: answer };
-    const updatedRuns = bundle.runs.map((item) => {
-      if (item.id !== runId) return item;
-      const history = item.analysisHistory || [];
-      const previous = item.analysis && !history.some((entry) => entry.text === item.analysis) ? [{ id: `legacy-${runId}`, createdAt: `${item.date}T12:00:00.000Z`, provider, model: "Previous response", text: item.analysis }] : [];
-      return { ...item, analysis: answer, analysisHistory: [...history, ...previous, review] };
-    });
-    await saveBundle({ runs: updatedRuns });
-    return Response.json({ answer, model, provider, review, history: updatedRuns.find((item) => item.id === runId)?.analysisHistory || [review] });
+    // The provider call may take minutes. Re-read the run *after* it finishes;
+    // never write the old entire-run snapshot back over newer user entries.
+    const latest = await getBundle();
+    const currentRun = latest.runs.find((item) => item.id === runId);
+    if (!currentRun) return Response.json({ error: "This run was removed during analysis. No records were changed." }, { status: 409 });
+    const history = currentRun.analysisHistory || [];
+    const previous = currentRun.analysis && !history.some((entry) => entry.text === currentRun.analysis)
+      ? [{ id: `legacy-${runId}`, createdAt: `${currentRun.date}T12:00:00.000Z`, provider, model: "Previous response", text: currentRun.analysis }]
+      : [];
+    const updatedRun = { ...currentRun, analysis: answer, analysisHistory: [...history, ...previous, review] };
+    await updateRunHistorySafely([currentRun], [updatedRun]);
+    return Response.json({ answer, model, provider, review, history: updatedRun.analysisHistory });
   } catch (error) {
+    if (error instanceof RunHistoryConflictError) return Response.json({ error: error.message }, { status: 409 });
     const timeout = error instanceof Error && error.name === "AbortError";
     return Response.json({ error: timeout ? "The analysis took too long. Try a faster model or retry later." : "Could not connect to the selected AI provider." }, { status: timeout ? 504 : 502 });
   } finally {
