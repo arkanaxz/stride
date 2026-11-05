@@ -24,6 +24,8 @@ export type Run = {
   notes?: string;
   analysis?: string;
   analysisHistory?: AnalysisReview[];
+  /** Partial Garmin-only reconstruction of a missing original run record. */
+  recoveryStatus?: "summary-only";
 };
 
 export type AnalysisReview = {
