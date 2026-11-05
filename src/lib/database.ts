@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
 import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
 import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
+import { VERIFIED_GARMIN_RECOVERY_KEY, verifiedGarminRunSummaries } from "@/lib/recovered-garmin-runs";
 
 const defaultPreferences: Preferences = {
   defaultLocation: "Lapu-Lapu City, Cebu, Philippines",
@@ -214,6 +215,65 @@ function preserveMatchedStatus(next: Workout[], previous: Workout[]): Workout[] 
     }
     return item;
   });
+}
+
+
+/**
+ * One-time, non-destructive recovery of the four run summaries that can be
+ * verified from prior Garmin analysis. It inserts a record only if NO run for
+ * that calendar date exists. It never replaces or deletes an existing run.
+ *
+ * The date check and insert execute in the same SQL statement, inside a
+ * transaction. Concurrent dashboard requests cannot create duplicates.
+ * This does not pretend to restore missing manually entered fields.
+ */
+export async function ensureVerifiedGarminRunRecovery(): Promise<void> {
+  await ensureReady();
+  if (verifiedGarminRunSummaries.length !== 4 ||
+      new Set(verifiedGarminRunSummaries.map(run => run.date)).size !== 4 ||
+      verifiedGarminRunSummaries.some(run => !(run.distance > 0) || !(run.duration > 0))) {
+    throw new Error("Verified Garmin recovery input failed validation; no database writes performed.");
+  }
+  const check = "SELECT key FROM metadata WHERE key = ? LIMIT 1";
+  const insertIfMissing = "INSERT INTO runs (payload) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM runs WHERE json_extract(payload, '$.date') = ?)";
+  const markerValue = JSON.stringify({
+    source: "Previously analyzed Garmin workout summaries",
+    dates: verifiedGarminRunSummaries.map(run => run.date),
+    originalManualFields: "not available",
+    restored: "date, distance, duration, avgHr, maxHr, workout context where verified",
+  });
+
+  if (cloud) {
+    const applied = await cloud.execute({ sql: check, args: [VERIFIED_GARMIN_RECOVERY_KEY] });
+    if (applied.rows.length) return;
+    const sql = [
+      ...verifiedGarminRunSummaries.map(run => ({
+        sql: insertIfMissing,
+        args: [JSON.stringify(run), run.date],
+      })),
+      {
+        sql: "INSERT OR IGNORE INTO metadata (key, value) VALUES (?, ?)",
+        args: [VERIFIED_GARMIN_RECOVERY_KEY, markerValue],
+      },
+    ];
+    await cloud.batch(sql, "write");
+    return;
+  }
+
+  local!.exec("BEGIN IMMEDIATE");
+  try {
+    const applied = local!.prepare(check).get(VERIFIED_GARMIN_RECOVERY_KEY);
+    if (!applied) {
+      const insert = local!.prepare(insertIfMissing);
+      for (const run of verifiedGarminRunSummaries) insert.run(JSON.stringify(run), run.date);
+      local!.prepare("INSERT OR IGNORE INTO metadata (key, value) VALUES (?, ?)")
+        .run(VERIFIED_GARMIN_RECOVERY_KEY, markerValue);
+    }
+    local!.exec("COMMIT");
+  } catch (error) {
+    local!.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function getBundle(): Promise<Bundle> {
