@@ -364,7 +364,7 @@ export async function updateRunHistorySafely(baseRuns: Run[], desiredRuns: Run[]
     for (const operation of operations) {
       statements.push({
         sql: "INSERT INTO run_history_backups (run_id, payload, reason) SELECT id, payload, ? FROM runs WHERE id = ?",
-        args: [operation.id, operation.action],
+        args: [operation.action, operation.id],
       });
       statements.push(operation.action === "delete"
         ? { sql: "DELETE FROM runs WHERE id = ? AND payload = ?", args: [operation.id, runPayload(operation.before)] }
