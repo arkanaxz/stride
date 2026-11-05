@@ -1,0 +1,16 @@
+name: Validate Stride missing run recovery
+on:
+  push:
+    branches: [feat/recover-four-missing-runs]
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/recovery-path.test.mjs
+      - run: npm run build
