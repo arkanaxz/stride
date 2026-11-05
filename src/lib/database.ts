@@ -34,6 +34,8 @@ if (!cloud) {
   mkdirSync(path.dirname(localPath), { recursive: true });
   local = globalDatabase.strideLocalDatabase ?? new DatabaseSync(localPath);
   globalDatabase.strideLocalDatabase = local;
+  // Allow concurrent Next.js build workers to wait briefly for SQLite WAL locks.
+  local.exec("PRAGMA busy_timeout = 5000;");
   local.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
 }
 
