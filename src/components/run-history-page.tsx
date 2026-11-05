@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Run } from "@/lib/types";
+import ThemeToggle from "@/components/theme-toggle";
 
 function pace(run: Run) {
   if (!run.distance || !run.duration) return "—";
@@ -29,7 +30,7 @@ export default function RunHistoryPage({ runs }: { runs: Run[] }) {
   const filteredRuns = useMemo(() => [...runs].sort((a, b) => b.date.localeCompare(a.date)).filter((run) => !search.trim() || Object.values(run).some((value) => JSON.stringify(value ?? "").toLowerCase().includes(search.trim().toLowerCase()))), [runs, search]);
 
   return <main className="shell history-page">
-    <header className="review-page-head"><a className="brand" href="/"><span className="brand-mark">↗</span><span>stride<span className="lime">.</span></span></a><a className="btn" href="/">Back to dashboard</a></header>
+    <header className="review-page-head"><a className="brand" href="/"><span className="brand-mark">↗</span><span>stride<span className="lime">.</span></span></a><div className="review-header-actions"><ThemeToggle/><a className="btn" href="/">Back to dashboard</a></div></header>
     <div className="hero"><div><div className="eyebrow">YOUR TRAINING LOG</div><h1>Run history</h1><p className="muted">{filteredRuns.length} of {runs.length} runs · Select a run to expand its details.</p></div></div>
     <label className="history-search">Search runs<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, date, shoes, notes…" /></label>
     <section className="history-run-list">{filteredRuns.map((run, index) => {

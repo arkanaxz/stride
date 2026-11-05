@@ -1,6 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getBundle } from "@/lib/database";
+import ThemeToggle from "@/components/theme-toggle";
+import AnalysisReview from "@/components/analysis-review";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +17,12 @@ export default async function RunReviewPage({ params, searchParams }: { params: 
   if (!text) notFound();
 
   return <main className="review-page shell">
-    <header className="review-page-head"><a className="brand" href="/"><span className="brand-mark">↗</span><span>stride<span className="lime">.</span></span></a><a className="btn" href="/">Back to dashboard</a></header>
+    <header className="review-page-head"><a className="brand" href="/"><span className="brand-mark">↗</span><span>stride<span className="lime">.</span></span></a><div className="review-header-actions"><ThemeToggle/><a className="btn" href="/">Back to dashboard</a></div></header>
     <article className="card review-full-card">
       <div className="eyebrow">RUN REVIEW</div>
       <h1>{run.name}</h1>
       <p className="muted">{new Date(`${run.date}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })} · {run.distance} km{review ? ` · ${review.model} · ${new Date(review.createdAt).toLocaleString()}` : ""}</p>
-      <div className="analysis-result review-full-text">{text}</div>
+      <AnalysisReview text={text} defaultExpanded/>
     </article>
   </main>;
 }
