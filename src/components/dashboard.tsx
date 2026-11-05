@@ -114,8 +114,8 @@ export default function Dashboard({ initialPage = "dashboard" }: { initialPage?:
 
   async function persist(next: Bundle, message = `Saved to ${next.storage === "Turso" ? "Turso" : "local SQLite"}`): Promise<Bundle | null> {
     // Preference changes must not rewrite the workout plan or historical runs.
-    const changes: Partial<Bundle> = {};
-    if (JSON.stringify(next.runs) !== JSON.stringify(bundle.runs)) changes.runs = next.runs;
+    const changes: Partial<Bundle> & { baseRuns?: Run[] } = {};
+    if (JSON.stringify(next.runs) !== JSON.stringify(bundle.runs)) { changes.runs = next.runs; changes.baseRuns = bundle.runs; }
     if (JSON.stringify(next.plan) !== JSON.stringify(bundle.plan)) changes.plan = next.plan;
     if (JSON.stringify(next.preferences) !== JSON.stringify(bundle.preferences)) changes.preferences = next.preferences;
     if (JSON.stringify(next.meta) !== JSON.stringify(bundle.meta)) changes.meta = next.meta;
@@ -123,7 +123,7 @@ export default function Dashboard({ initialPage = "dashboard" }: { initialPage?:
     setBundle(next);
     try {
       const response = await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
-      if (!response.ok) throw new Error("Could not save changes to the database.");
+      if (!response.ok) { const failure = await response.json().catch(() => ({})); throw new Error(failure.error || "Could not save changes to the database."); }
       const saved = await response.json() as Bundle;
       setBundle(saved);
       setToast(message);

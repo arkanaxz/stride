@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { currentUser } from "@/lib/auth";
-import { saveBundle, getBundle } from "@/lib/database";
+import { appendRunHistorySafely, getBundle } from "@/lib/database";
 import type { Run } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
         return true;
       });
       if (preview) return Response.json({ preview: true, importedRuns: newRuns.length, importedWorkouts: 0, preservedRuns: current.runs.length, preservedCompleted: current.plan.filter((w) => w.status === "completed").length });
-      const result = await saveBundle({ runs: [...current.runs, ...newRuns] });
+      const { bundle: result } = await appendRunHistorySafely(newRuns);
       return Response.json({ ...result, importedRuns: newRuns.length, importedWorkouts: 0, preservedRuns: current.runs.length });
     }
     const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true });
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
     };
     if (preview || !newRuns.length) return Response.json({ ...current, preview, ...details });
     // The plan, settings and metadata are NEVER included in an import save.
-    const result = await saveBundle({ runs: [...current.runs, ...newRuns] });
+    const { bundle: result } = await appendRunHistorySafely(newRuns);
     return Response.json({ ...result, ...details });
   } catch {
     return Response.json({ error: "Could not read the workbook. Check that it is a valid run-log spreadsheet." }, { status: 400 });

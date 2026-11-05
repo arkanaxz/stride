@@ -42,6 +42,8 @@ async function ensureReady() {
     globalDatabase.strideDbReady = (async () => {
       const schema = [
         "CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS run_history_baseline (run_id INTEGER PRIMARY KEY, payload TEXT NOT NULL, captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE IF NOT EXISTS run_history_backups (backup_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, payload TEXT NOT NULL, reason TEXT NOT NULL, captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS workouts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS workout_plan_backups (migration_key TEXT NOT NULL, workout_id TEXT NOT NULL, payload TEXT NOT NULL, saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (migration_key, workout_id))",
         "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -50,8 +52,14 @@ async function ensureReady() {
         "CREATE TABLE IF NOT EXISTS run_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, username TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
       ];
-      if (cloud) for (const sql of schema) await cloud.execute(sql);
-      else local?.exec(schema.join(";"));
+      if (cloud) {
+        for (const sql of schema) await cloud.execute(sql);
+        // Save a non-destructive baseline of every currently present run, once.
+        await cloud.execute("INSERT OR IGNORE INTO run_history_baseline (run_id, payload) SELECT id, payload FROM runs");
+      } else {
+        local?.exec(schema.join(";"));
+        local?.exec("INSERT OR IGNORE INTO run_history_baseline (run_id, payload) SELECT id, payload FROM runs");
+      }
     })();
   }
   await globalDatabase.strideDbReady;
@@ -291,21 +299,123 @@ export async function deleteSecret(key: string) {
   else local!.prepare("DELETE FROM secrets WHERE key = ?").run(key);
 }
 
+
+/** Run-history conflicts must never be resolved by discarding server records. */
+export class RunHistoryConflictError extends Error {
+  constructor(message = "Run History has changed in another tab. Refresh before trying again; no runs were overwritten.") {
+    super(message);
+    this.name = "RunHistoryConflictError";
+  }
+}
+
+function runPayload(run: Run): string {
+  const { id: _id, ...payload } = run;
+  return JSON.stringify(payload);
+}
+function runIdentity(run: Run): string {
+  return [run.date, run.name, Number(run.distance || 0), Number(run.duration || 0)].join("|");
+}
+
+/**
+ * Applies only the specific rows changed in a browser tab. A stale tab cannot
+ * truncate the server's table or overwrite runs it never loaded. Before every
+ * edited/deleted record, an append-only journal captures the previous payload.
+ */
+export async function updateRunHistorySafely(baseRuns: Run[], desiredRuns: Run[]): Promise<Bundle> {
+  await ensureReady();
+  if (!Array.isArray(baseRuns) || !Array.isArray(desiredRuns)) throw new RunHistoryConflictError("Run history snapshot missing. Refresh Stride and try again.");
+  const base = new Map(baseRuns.filter(run => Number.isInteger(run.id) && Number(run.id) > 0).map(run => [Number(run.id), run]));
+  const desired = new Map(desiredRuns.filter(run => Number.isInteger(run.id) && Number(run.id) > 0).map(run => [Number(run.id), run]));
+  if (base.size !== baseRuns.length || desired.size !== desiredRuns.filter(run => run.id != null).length) {
+    throw new RunHistoryConflictError("Run History contains ambiguous record IDs. No changes were saved.");
+  }
+
+  const operations: Array<{ action: "update" | "delete"; id: number; before: Run; after?: Run }> = [];
+  for (const [id, before] of base) {
+    const after = desired.get(id);
+    if (!after) operations.push({ action: "delete", id, before });
+    else if (runPayload(before) !== runPayload(after)) operations.push({ action: "update", id, before, after });
+  }
+  for (const id of desired.keys()) if (!base.has(id)) throw new RunHistoryConflictError("Unexpected run ID. Refresh before saving.");
+  const additions = desiredRuns.filter(run => run.id == null);
+
+  // Read current server state and validate the PREVIOUS version for each changed row.
+  // None of the other run records are ever written or removed.
+  const current = await getBundle();
+  const currentById = new Map(current.runs.map(run => [Number(run.id), run]));
+  for (const operation of operations) {
+    const actual = currentById.get(operation.id);
+    if (!actual || runPayload(actual) !== runPayload(operation.before)) throw new RunHistoryConflictError();
+  }
+  const identities = new Set(current.runs.map(runIdentity));
+  const newRuns: Run[] = [];
+  for (const run of additions) {
+    if (!run.date || !run.name || !(Number(run.distance) > 0) || !(Number(run.duration) > 0)) {
+      throw new RunHistoryConflictError("One run is incomplete. No records were saved.");
+    }
+    if (identities.has(runIdentity(run))) continue;
+    identities.add(runIdentity(run));
+    newRuns.push(run);
+  }
+  if (!operations.length && !newRuns.length) return current;
+
+  if (cloud) {
+    const statements: { sql: string; args?: (string | number | null)[] }[] = [];
+    for (const operation of operations) {
+      statements.push({
+        sql: "INSERT INTO run_history_backups (run_id, payload, reason) SELECT id, payload, ? FROM runs WHERE id = ?",
+        args: [operation.action, operation.id],
+      });
+      statements.push(operation.action === "delete"
+        ? { sql: "DELETE FROM runs WHERE id = ? AND payload = ?", args: [operation.id, runPayload(operation.before)] }
+        : { sql: "UPDATE runs SET payload = ? WHERE id = ? AND payload = ?", args: [runPayload(operation.after!), operation.id, runPayload(operation.before)] });
+    }
+    for (const run of newRuns) statements.push({ sql: "INSERT INTO runs (payload) VALUES (?)", args: [runPayload(run)] });
+    await cloud.batch(statements, "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      for (const operation of operations) {
+        const actual = local!.prepare("SELECT payload FROM runs WHERE id = ?").get(operation.id) as { payload: string } | undefined;
+        if (!actual || actual.payload !== runPayload(operation.before)) throw new RunHistoryConflictError();
+        local!.prepare("INSERT INTO run_history_backups (run_id, payload, reason) VALUES (?, ?, ?)")
+          .run(operation.id, actual.payload, operation.action);
+        if (operation.action === "delete") local!.prepare("DELETE FROM runs WHERE id = ?").run(operation.id);
+        else local!.prepare("UPDATE runs SET payload = ? WHERE id = ?").run(runPayload(operation.after!), operation.id);
+      }
+      const insert = local!.prepare("INSERT INTO runs (payload) VALUES (?)");
+      for (const run of newRuns) insert.run(runPayload(run));
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  return getBundle();
+}
+
+/** Imports or recovers only missing runs without touching existing Run History. */
+export async function appendRunHistorySafely(imported: Run[]): Promise<{ bundle: Bundle; added: number }> {
+  const current = await getBundle();
+  const identities = new Set(current.runs.map(runIdentity));
+  const additions: Run[] = [];
+  for (const run of imported) {
+    if (!run.date || !run.name || !(Number(run.distance) > 0) || !(Number(run.duration) > 0)) continue;
+    const key = runIdentity(run);
+    if (identities.has(key)) continue;
+    identities.add(key);
+    additions.push({ ...run, id: undefined });
+  }
+  const bundle = await updateRunHistorySafely(current.runs, [...current.runs, ...additions]);
+  return { bundle, added: additions.length };
+}
+
 export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {
   await ensureReady();
+  if (bundle.runs) throw new RunHistoryConflictError("Bulk Run History replacements are disabled. Use the protected per-run operations.");
   if (!cloud) {
     local!.exec("BEGIN IMMEDIATE");
     try {
-      if (bundle.runs) {
-        local!.exec("DELETE FROM runs");
-        const insert = local!.prepare("INSERT INTO runs (payload) VALUES (?)");
-        const insertWithId = local!.prepare("INSERT INTO runs (id, payload) VALUES (?, ?)");
-        for (const run of bundle.runs) {
-          const { id: _id, ...payload } = run;
-          if (Number.isInteger(run.id) && Number(run.id) > 0) insertWithId.run(Number(run.id), JSON.stringify(payload));
-          else insert.run(JSON.stringify(payload));
-        }
-      }
       if (bundle.plan) {
         local!.exec("DELETE FROM workouts");
         const insert = local!.prepare("INSERT INTO workouts (id, payload) VALUES (?, ?)");
@@ -328,14 +438,6 @@ export async function saveBundle(bundle: Partial<Bundle>): Promise<Bundle> {
   }
 
   const statements: { sql: string; args?: (string | number | null)[] }[] = [];
-  if (bundle.runs) {
-    statements.push({ sql: "DELETE FROM runs" });
-    for (const run of bundle.runs) {
-      const { id, ...payload } = run;
-      if (Number.isInteger(id) && Number(id) > 0) statements.push({ sql: "INSERT INTO runs (id, payload) VALUES (?, ?)", args: [Number(id), JSON.stringify(payload)] });
-      else statements.push({ sql: "INSERT INTO runs (payload) VALUES (?)", args: [JSON.stringify(payload)] });
-    }
-  }
   if (bundle.plan) {
     statements.push({ sql: "DELETE FROM workouts" });
     for (const [index, workout] of bundle.plan.entries()) statements.push({ sql: "INSERT INTO workouts (id, payload) VALUES (?, ?)", args: [String(workout.id ?? `workout-${index}`), JSON.stringify(workout)] });
