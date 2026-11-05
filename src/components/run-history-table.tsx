@@ -60,7 +60,7 @@ function readWidths(): Record<string, number> {
   try {
     const parsed = JSON.parse(localStorage.getItem(widthsStorage) || "{}");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([key, value]) => columns.some(c => c.key === key) && typeof value === "number" && value >= 65 && value <= 700));
+    return Object.fromEntries(Object.entries(parsed).filter(([key, value]) => columns.some(c => c.key === key) && typeof value === "number" && value >= 65 && value <= 700)) as Record<string, number>;
   } catch { return {}; }
 }
 
