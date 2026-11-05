@@ -42,3 +42,4 @@ html,body,.card,.btn,input,select,textarea{transition:background-color .18s ease
 html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#557b13}
 @media(max-width:680px){.review-page-head{gap:12px;flex-wrap:wrap}.review-header-actions{flex-wrap:wrap;justify-content:flex-end}.theme-toggle{font-size:11px}}
 @media(prefers-reduced-motion:reduce){html,body,.card,.btn,input,select,textarea{transition:none}}
+.status.cancelled{color:var(--muted);border-style:dashed}.training-card td:last-child .btn{margin:3px 3px 3px 0;padding:6px 9px;font-size:11px}.training-card td:last-child{min-width:170px}
