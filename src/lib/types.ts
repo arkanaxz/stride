@@ -19,6 +19,8 @@ export type Run = {
   painDuring?: string;
   painNext?: string;
   effort?: number | null;
+  /** Perceived effort on the 0–10 RPE scale, distinct from Strava Relative Effort. */
+  rpe?: number | null;
   shoes?: string;
   notes?: string;
   analysis?: string;
