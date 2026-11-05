@@ -1,5 +1,5 @@
 import { currentUser } from "@/lib/auth";
-import { ensureAuthoritativeWorkbookPlan, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
+import { ensureAuthoritativeWorkbookPlan, ensureVerifiedGarminRunRecovery, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
 import type { Bundle } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -9,6 +9,7 @@ export async function GET() {
   const user = await currentUser();
   if (!user) return Response.json({ error: "Please sign in." }, { status: 401 });
   await ensureAuthoritativeWorkbookPlan();
+  await ensureVerifiedGarminRunRecovery();
   const [bundle, comments] = await Promise.all([getBundle(), getComments()]);
   let shoeMileageBase: Record<string, number> = {};
   try { shoeMileageBase = JSON.parse(String(bundle.meta.shoeMileageBase || "{}")) as Record<string, number>; } catch { /* no baseline saved */ }
