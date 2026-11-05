@@ -1,0 +1,16 @@
+name: Verify four Garmin summary recovery
+on:
+  push:
+    branches: [fix/restore-four-garmin-run-summaries]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --experimental-strip-types --test tests/verified-garmin-recovery.test.mjs
+      - run: npm run build
