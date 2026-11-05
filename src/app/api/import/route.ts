@@ -1,8 +1,7 @@
 import * as XLSX from "xlsx";
 import { currentUser } from "@/lib/auth";
 import { saveBundle, getBundle } from "@/lib/database";
-import type { Run, Workout } from "@/lib/types";
-import { mergeRevisedPlan } from "@/lib/merge-plan";
+import type { Run } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -79,97 +78,16 @@ export async function POST(request: Request) {
       return Response.json({ ...result, importedRuns: newRuns.length, importedWorkouts: 0, preservedRuns: current.runs.length });
     }
     const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: true });
-    const sm2smSheet = workbook.Sheets["18-Week Plan"];
-    if (sm2smSheet) {
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(sm2smSheet, { header: 1, raw: true, defval: "" });
-      const mondayValue = value(rows[6] || [], 1);
-      const mondayDate = dateString(mondayValue);
-      if (!mondayDate) return Response.json({ error: "The 18-Week Plan sheet is missing its first Monday date." }, { status: 400 });
-      const dayColumns = [
-        { day: "Mon", column: 4, offset: 0 },
-        { day: "Tue", column: 5, offset: 1 },
-        { day: "Thu", column: 7, offset: 3 },
-        { day: "Sat", column: 9, offset: 5 },
-        { day: "Sun", column: 10, offset: 6 },
-      ];
-      const importedPlan: Workout[] = rows.slice(6, 24).flatMap((row, weekIndex) => {
-        const week = numeric(value(row, 0)) || weekIndex + 1;
-        const phase = text(value(row, 2));
-        const mission = text(value(row, 3));
-        const progression = text(value(row, 14));
-        return dayColumns.flatMap(({ day, column, offset }) => {
-          const details = text(value(row, column));
-          if (!details || /^(rest|strength|mobility)\b/i.test(details)) return [];
-          const date = new Date(`${mondayDate}T00:00:00Z`);
-          date.setUTCDate(date.getUTCDate() + weekIndex * 7 + offset);
-          const workoutDate = date.toISOString().slice(0, 10);
-          const headline = details.split(/\r?\n/)[0].trim();
-          return [{
-            id: `sm2sm-2027-gm-${workoutDate}-${day.toLowerCase()}`,
-            week,
-            phase,
-            day,
-            date: workoutDate,
-            session: `${day}: ${headline}`,
-            target: details,
-            notes: [mission, progression].filter(Boolean).join("\n\n"),
-            status: "planned",
-            dateShiftable: false,
-          }];
-        });
-      });
-      if (!importedPlan.length) return Response.json({ error: "No running workouts were found on the 18-Week Plan sheet." }, { status: 400 });
-      const current = await getBundle();
-      const raceDate = new Date(`${mondayDate}T00:00:00Z`);
-      raceDate.setUTCDate(raceDate.getUTCDate() + 17 * 7 + 6);
-      const raceDateString = raceDate.toISOString().slice(0, 10);
-      const merged = mergeRevisedPlan(current.plan, importedPlan);
-      const details = {
-        importedRuns: 0,
-        importedWorkouts: merged.importedCount,
-        preservedRuns: current.runs.length,
-        preservedCompleted: merged.preservedCompleted,
-        preservedCancelled: merged.preservedCancelled,
-        replacedPlanned: merged.replacedPlanned,
-      };
-      if (preview) return Response.json({ preview: true, ...details });
-      // Deliberately omit runs: import must never delete, reset, or rewrite logged runs.
-      const result = await saveBundle({
-        plan: merged.plan,
-        preferences: { ...current.preferences, raceDate: raceDateString, lthr: 179 },
-        meta: { ...current.meta, title: "SM2SM 2027 Half Marathon · Sub 1:45", raceDate: raceDateString, goalFinish: "1:44:59", goalPace: "4:58/km" },
-      });
-      return Response.json({ ...result, ...details });
-    }
-    const runningEraSheet = workbook.Sheets["Training Log"];
-    if (runningEraSheet) {
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(runningEraSheet, { header: 1, raw: true, defval: "" });
-      const importedPlan: Workout[] = rows.slice(5).flatMap((row, index) => {
-        const date = dateString(value(row, 2));
-        const type = text(value(row, 4));
-        const workoutText = text(value(row, 5));
-        if (!date || !type || /^(rest|strength)/i.test(type) || !workoutText) return [];
-        const week = numeric(value(row, 0)) || 0;
-        const day = text(value(row, 3));
-        const plannedKm = numeric(value(row, 6));
-        const paceTarget = text(value(row, 7));
-        const hrTarget = text(value(row, 8));
-        const coaching = text(value(row, 9));
-        const status = /^yes$/i.test(text(value(row, 10))) ? "completed" : "planned";
-        const actualNotes = text(value(row, 16));
-        return [{ id: `running-era-${date}-${week}-${day}-${index}`, week, phase: text(value(row, 1)), day, date, session: `${type}: ${workoutText}`, target: plannedKm === null ? workoutText : `${plannedKm} km · ${workoutText}`, pace: paceTarget, hr: hrTarget, notes: [coaching, actualNotes && `Logged notes: ${actualNotes}`].filter(Boolean).join("\n\n"), status, dateShiftable: false }];
-      });
-      if (!importedPlan.length) return Response.json({ error: "No running workouts were found on the Training Log sheet." }, { status: 400 });
-      const current = await getBundle();
-      const merged = mergeRevisedPlan(current.plan, importedPlan);
-      const details = { importedRuns: 0, importedWorkouts: merged.importedCount, preservedRuns: current.runs.length, preservedCompleted: merged.preservedCompleted, preservedCancelled: merged.preservedCancelled, replacedPlanned: merged.replacedPlanned };
-      if (preview) return Response.json({ preview: true, ...details });
-      const result = await saveBundle({ plan: merged.plan, preferences: { ...current.preferences, raceDate: "2027-03-07", lthr: 179 }, meta: { ...current.meta, title: "SM2SM 2027 Half Marathon · Sub 1:45", raceDate: "2027-03-07", goalFinish: "1:44:59", goalPace: "4:58/km" } });
-      return Response.json({ ...result, ...details });
-    }
+    // Run-log imports NEVER change the planned-workout table, even if a workbook
+    // includes a Training Plan worksheet alongside a Run Log worksheet.
     const runSheet = workbook.Sheets["Run Log"];
-    const planSheet = workbook.Sheets["Training Plan"];
-    if (!runSheet || !planSheet) return Response.json({ error: "Workbook must include Run Log and Training Plan sheets." }, { status: 400 });
+    if (!runSheet) {
+      return Response.json({
+        error: workbook.Sheets["18-Week Plan"] || workbook.Sheets["Training Log"] || workbook.Sheets["Training Plan"]
+          ? "This workbook contains a training plan, not a run log. Import Run Log cannot change planned workouts. No records were modified."
+          : "Excel imports require a Run Log worksheet. No records were modified.",
+      }, { status: 400 });
+    }
     const runRows = XLSX.utils.sheet_to_json<unknown[]>(runSheet, { header: 1, raw: true, defval: "" });
     const importedRuns: Run[] = [];
     for (const row of runRows.slice(4)) {
@@ -200,13 +118,6 @@ export async function POST(request: Request) {
         shoes: text(value(row, 14)), notes: text(value(row, 15)),
       });
     }
-    const planRows = XLSX.utils.sheet_to_json<unknown[]>(planSheet, { header: 1, raw: true, defval: "" });
-    const importedPlan: Workout[] = planRows.slice(4).flatMap((row, index) => {
-      const date = dateString(value(row, 5));
-      const session = text(value(row, 6));
-      if (!date || !session || /no run|^rest|^strength/i.test(session)) return [];
-      return [{ id: `excel-${date}-${index}`, week: numeric(value(row, 0)) || 0, phase: text(value(row, 2)), day: text(value(row, 4)), date, session, pace: text(value(row, 7)), hr: text(value(row, 8)), target: text(value(row, 9)), strength: text(value(row, 10)), notes: text(value(row, 11)), itbNext: text(value(row, 12)), status: "planned" }];
-    });
     const current = await getBundle();
     const seenRuns = new Set(current.runs.map((run) => `${run.date}|${run.name}`));
     const newRuns = importedRuns.filter((run) => {
@@ -215,12 +126,17 @@ export async function POST(request: Request) {
       seenRuns.add(key);
       return true;
     });
-    const merged = importedPlan.length ? mergeRevisedPlan(current.plan, importedPlan) : null;
-    const details = { importedRuns: newRuns.length, importedWorkouts: importedPlan.length, preservedRuns: current.runs.length, preservedCompleted: merged?.preservedCompleted ?? 0, preservedCancelled: merged?.preservedCancelled ?? 0, replacedPlanned: merged?.replacedPlanned ?? 0 };
-    if (preview) return Response.json({ preview: true, ...details });
-    const result = await saveBundle({ ...(newRuns.length ? { runs: [...current.runs, ...newRuns] } : {}), ...(merged ? { plan: merged.plan } : {}), meta: { ...current.meta, title: "SM2SM 2027 Half Marathon", raceDate: current.preferences.raceDate, goalFinish: "1:44:59", goalPace: "4:58/km" } });
+    const details = {
+      importedRuns: newRuns.length,
+      importedWorkouts: 0,
+      preservedRuns: current.runs.length,
+      preservedCompleted: current.plan.filter((workout) => workout.status === "completed").length,
+    };
+    if (preview || !newRuns.length) return Response.json({ ...current, preview, ...details });
+    // The plan, settings and metadata are NEVER included in an import save.
+    const result = await saveBundle({ runs: [...current.runs, ...newRuns] });
     return Response.json({ ...result, ...details });
   } catch {
-    return Response.json({ error: "Could not read the workbook. Check that it is a valid training-plan spreadsheet." }, { status: 400 });
+    return Response.json({ error: "Could not read the workbook. Check that it is a valid run-log spreadsheet." }, { status: 400 });
   }
 }

@@ -1,0 +1,18 @@
+name: Validate run-log-only import
+on:
+  push:
+    branches: [fix/import-run-logs-only]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Ensure import endpoint never saves workout plans
+        run: |
+          node -e "const fs=require('fs');const s=fs.readFileSync('src/app/api/import/route.ts','utf8');if(s.includes('mergeRevisedPlan') || /saveBundle\(\{\s*plan:/.test(s) || /\bplan:\s*merged\./.test(s))process.exit(1);"
