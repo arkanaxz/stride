@@ -21,8 +21,8 @@ async function exercise(date,forecast) {
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({location:"Lapu-Lapu City, Cebu, Philippines",date,startTime:"06:10",endTime:"07:02"}),
     }));
-    assert.equal(response.status,200,await response.text().catch(()=>""));
     const body=await response.json();
+    assert.equal(response.status,200,JSON.stringify(body));
     assert.match(body.weatherStart,/27.5°C/);
     assert.match(body.weatherEnd,/28.1°C/);
     assert.equal(body.location,"Lapu-Lapu City, Cebu, Philippines");
