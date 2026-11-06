@@ -17,8 +17,8 @@ function formatPace(run: Run) {
 }
 
 const columns: Column[] = [
-  { key: "name", label: "Run", width: 160, render: run => run.name || "Run" },
   { key: "date", label: "Date", width: 125, render: run => run.date },
+  { key: "name", label: "Run", width: 160, render: run => run.name || "Run" },
   { key: "type", label: "Type", width: 105, render: run => run.type || "—" },
   { key: "distance", label: "Distance", width: 105, render: run => Number(run.distance).toFixed(2) + " km" },
   { key: "duration", label: "Duration", width: 115, render: run => {
@@ -28,6 +28,7 @@ const columns: Column[] = [
   { key: "pace", label: "Pace", width: 100, render: formatPace },
   { key: "avgHr", label: "Avg HR", width: 90, render: run => run.avgHr == null ? "—" : String(run.avgHr) },
   { key: "maxHr", label: "Max HR", width: 90, render: run => run.maxHr == null ? "—" : String(run.maxHr) },
+  { key: "garminVo2Max", label: "Garmin VO₂ Max", width: 130, render: run => run.garminVo2Max == null ? "—" : String(run.garminVo2Max) },
   { key: "sleep", label: "Sleep", width: 100, render: run => run.sleep == null ? "—" : Number(run.sleep).toFixed(2) + " h" },
   { key: "rpe", label: "RPE", width: 75, render: run => run.rpe == null ? "—" : String(run.rpe) },
   { key: "effort", label: "Relative Effort", width: 125, render: run => run.effort == null ? "—" : String(run.effort) },
@@ -42,7 +43,7 @@ const columns: Column[] = [
   { key: "notes", label: "Notes", width: 240, render: run => run.notes || "—" },
 ];
 
-const defaultKeys = ["name", "date", "distance", "pace", "avgHr", "painDuring"];
+const defaultKeys = ["date", "name", "distance", "pace", "avgHr", "painDuring"];
 const keysStorage = "stride-history-columns-v1";
 const widthsStorage = "stride-history-widths-v1";
 
