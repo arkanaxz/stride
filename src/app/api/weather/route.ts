@@ -84,17 +84,24 @@ export async function POST(request: Request) {
     // The historical archive may lag several days. Forecast API supports
     // past_days, allowing weather for today and recent completed runs.
     const useForecast = requestedDay >= localToday - 14 * ONE_DAY;
+    if (requestedDay > localToday + 15 * ONE_DAY) {
+      return Response.json({ error: "Hourly forecast is not available that far ahead." }, { status: 400 });
+    }
     const weatherUrl = new URL(useForecast ? "https://api.open-meteo.com/v1/forecast" : "https://archive-api.open-meteo.com/v1/archive");
     weatherUrl.searchParams.set("latitude", String(place.latitude));
     weatherUrl.searchParams.set("longitude", String(place.longitude));
-    weatherUrl.searchParams.set("start_date", date);
-    weatherUrl.searchParams.set("end_date", date);
     weatherUrl.searchParams.set("hourly", "temperature_2m");
     weatherUrl.searchParams.set("timezone", "auto");
     weatherUrl.searchParams.set("temperature_unit", "celsius");
     if (useForecast) {
-      weatherUrl.searchParams.set("past_days", "14");
-      weatherUrl.searchParams.set("forecast_days", "16");
+      // Open-Meteo rejects past_days combined with start_date/end_date.
+      // Request the smallest relative window that contains the workout day.
+      const dayOffset = Math.round((requestedDay - localToday) / ONE_DAY);
+      weatherUrl.searchParams.set("past_days", String(Math.min(14, Math.max(0, -dayOffset))));
+      weatherUrl.searchParams.set("forecast_days", String(Math.min(16, Math.max(1, dayOffset + 1))));
+    } else {
+      weatherUrl.searchParams.set("start_date", date);
+      weatherUrl.searchParams.set("end_date", date);
     }
     const weatherResponse = await fetch(weatherUrl, { cache: "no-store", signal: AbortSignal.timeout(15000) });
     const weather = await weatherResponse.json() as { hourly?: HourlyWeather; reason?: string; error?: boolean };

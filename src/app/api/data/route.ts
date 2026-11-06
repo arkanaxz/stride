@@ -35,7 +35,11 @@ export async function POST(request: Request) {
       });
     } catch (reason) {
       if (reason instanceof RunHistoryConflictError) return Response.json({ error: reason.message }, { status: 409 });
-      return Response.json({ error: "Could not save run and workout together. No partial completion was allowed." }, { status: 500 });
+      // Log a correlation ID for server-side diagnosis without exposing
+      // database URLs, access tokens or run payloads to the browser.
+      const reference = crypto.randomUUID().slice(0, 8);
+      console.error("[Stride complete-workout]", reference, reason instanceof Error ? reason.message : "Unknown error");
+      return Response.json({ error: "Workout save failed (" + reference + "). Your run was not intentionally saved separately; refresh to check before retrying." }, { status: 500 });
     }
   }
   if (incoming.kind === "bootstrap") {

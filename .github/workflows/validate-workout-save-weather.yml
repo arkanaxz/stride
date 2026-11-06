@@ -1,0 +1,18 @@
+name: Verify workout save and temperature autofill
+on:
+  push:
+    branches: [master]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/fix-workout-save-and-weather.test.mjs
+      - run: node --experimental-strip-types --test tests/weather-endpoint.test.mjs
+      - run: npm run build
+      - run: node tests/smoke-workout-completion.mjs
