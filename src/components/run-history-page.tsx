@@ -32,7 +32,7 @@ export default function RunHistoryPage({ runs }: { runs: Run[] }) {
   function exportRunHistory() {
     const keys: (keyof Run)[] = [
       "date", "name", "type", "distance", "duration", "avgHr", "maxHr",
-      "sleep", "pain", "painDuring", "painNext", "rpe", "effort",
+      "sleep", "pain", "painDuring", "painNext", "rpe", "effort", "garminVo2Max",
       "weatherStart", "weatherEnd", "weatherDuring", "weatherRoute",
       "location", "startTime", "endTime", "shoes", "notes", "analysis", "analysisHistory",
     ];
@@ -61,7 +61,7 @@ export default function RunHistoryPage({ runs }: { runs: Run[] }) {
     <section className="history-run-list">{filteredRuns.map((run, index) => {
       const fields: [string, string][] = [
         ["Date", dateLabel(run.date)], ["Type", run.type || "—"], ["Distance", `${Number(run.distance).toFixed(2)} km`], ["Duration", duration(Number(run.duration || 0))], ["Pace", `${pace(run)} /km`],
-        ["Average HR", run.avgHr ? `${run.avgHr} bpm` : "—"], ["Maximum HR", run.maxHr ? `${run.maxHr} bpm` : "—"], ["Sleep", sleep(run.sleep)], ["Relative effort", run.effort == null ? "—" : String(run.effort)], ["RPE (1–10)", run.rpe == null ? "—" : String(run.rpe)],
+        ["Average HR", run.avgHr ? `${run.avgHr} bpm` : "—"], ["Maximum HR", run.maxHr ? `${run.maxHr} bpm` : "—"], ["Garmin VO₂ Max", run.garminVo2Max == null ? "—" : `${run.garminVo2Max} mL/kg/min`], ["Sleep", sleep(run.sleep)], ["Relative effort", run.effort == null ? "—" : String(run.effort)], ["RPE (1–10)", run.rpe == null ? "—" : String(run.rpe)],
         ["ITB during", run.painDuring || (run.pain == null ? "—" : String(run.pain))], ["ITB next morning", run.painNext || "—"], ["Location", run.location || "—"], ["Start time", run.startTime || "—"], ["Finish time", run.endTime || "—"],
         ["Temperature at start", run.weatherStart || "—"], ["Temperature at finish", run.weatherEnd || "—"], ["Weather during", run.weatherDuring || "—"], ["Shoes", run.shoes || "—"], ["Notes", run.notes || "—"],
       ];

@@ -47,7 +47,7 @@ function csvRun(row: Record<string, string>): Run | null {
   const distance = numeric(row.distance);
   const duration = numeric(row.duration);
   if (!date || !name || distance === null || duration === null) return null;
-  return { date, name, type: text(row.type) || "Run", distance, duration, avgHr: numeric(row.avgHr), maxHr: numeric(row.maxHr), sleep: numeric(row.sleep), pain: numeric(row.pain), painDuring: text(row.painDuring), painNext: text(row.painNext), effort: numeric(row.effort), weatherStart: text(row.weatherStart), weatherEnd: text(row.weatherEnd), weatherDuring: text(row.weatherDuring), weatherRoute: text(row.weatherRoute), location: text(row.location), startTime: text(row.startTime), endTime: text(row.endTime), shoes: text(row.shoes), notes: text(row.notes) };
+  return { date, name, type: text(row.type) || "Run", distance, duration, avgHr: numeric(row.avgHr), maxHr: numeric(row.maxHr), garminVo2Max: numeric(row.garminVo2Max), sleep: numeric(row.sleep), rpe: numeric(row.rpe), pain: numeric(row.pain), painDuring: text(row.painDuring), painNext: text(row.painNext), effort: numeric(row.effort), weatherStart: text(row.weatherStart), weatherEnd: text(row.weatherEnd), weatherDuring: text(row.weatherDuring), weatherRoute: text(row.weatherRoute), location: text(row.location), startTime: text(row.startTime), endTime: text(row.endTime), shoes: text(row.shoes), notes: text(row.notes) };
 }
 
 export async function POST(request: Request) {
