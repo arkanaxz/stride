@@ -13,4 +13,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --test tests/history-weekday-weather.test.mjs
+      - run: node --test tests/chart-mileage.test.mjs
       - run: npm run build

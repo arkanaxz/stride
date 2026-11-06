@@ -109,3 +109,9 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .vo2-empty{padding:24px 16px;margin:14px 0 0;text-align:center;background:var(--panel2);border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:12px}
 .vo2-footnote{margin:8px 0 0}
 @media(max-width:680px){.vo2-trend-header{flex-direction:column;gap:12px}.vo2-summary{justify-content:flex-start;gap:17px}.vo2-summary>div{min-width:70px}.vo2-summary strong{font-size:20px}.vo2-chart-wrap{margin-left:-7px;margin-right:-7px}}
+
+/* Always-visible total for the week/month displayed in Distance over time. */
+.chart-mileage{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:-1px 0 15px;padding:9px 13px;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+.chart-mileage>span{font-size:11px;color:var(--muted);font-weight:650}
+.chart-mileage>strong{font-size:24px;letter-spacing:-.7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chart-mileage>strong small{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0}
