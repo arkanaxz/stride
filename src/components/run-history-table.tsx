@@ -10,6 +10,12 @@ type Column = {
   render: (run: Run) => string;
 };
 
+function weekdayForRunDate(date: string): string {
+  // Parse locally at noon to avoid timezone offsets changing the calendar day.
+  const parsed = new Date(date + "T12:00:00");
+  return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(parsed);
+}
+
 function formatPace(run: Run) {
   if (!Number(run.distance) || !Number(run.duration)) return "—";
   const totalSeconds = Math.round(Number(run.duration) * 60 / Number(run.distance));
@@ -128,7 +134,9 @@ export default function RunHistoryTable({ runs, onOpen }: { runs: Run[]; onOpen:
           }}/></th>)}</tr></thead>
         <tbody>{runs.map((run, index) =>
           <tr key={run.id ?? run.date + "-" + index}>{selectedColumns.map(col =>
-            <td key={col.key}>{col.key === "name" ?
+            <td key={col.key}>{col.key === "date" ?
+              <span className="history-date-cell"><strong>{run.date}</strong><small className="table-sub">{weekdayForRunDate(run.date)}</small></span> :
+              col.key === "name" ?
               <button type="button" className="run-name-button" onClick={() => onOpen(run)}><strong>{run.name}</strong><small className="table-sub">{run.type}</small></button> :
               <span title={col.render(run)}>{col.render(run)}</span>}</td>)}</tr>)}</tbody>
       </table>
