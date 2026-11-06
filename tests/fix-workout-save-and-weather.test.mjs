@@ -8,13 +8,12 @@ const weather=readFileSync("src/app/api/weather/route.ts","utf8");
 
 test("live workout saving is a checked, interactive write transaction",()=>{
   const code=db.slice(db.indexOf("export async function completeWorkoutWithRunSafely"),db.indexOf("One-time targeted repair"));
-  assert.match(code,/await cloud.transaction\("write"\)/);
-  assert.match(code,/await tx.commit\(\)/);
-  assert.match(code,/await tx.rollback\(\)/);
-  assert.match(code,/tx.close\(\)/);
+  assert.match(code,/await cloud.batch\(statements, "write"\)/);
+  assert.match(code,/local!\.exec\("BEGIN IMMEDIATE"\)/);
+  assert.match(code,/local!\.exec\("ROLLBACK"\)/);
   assert.match(code,/UPDATE workouts SET payload = \? WHERE id = \? AND payload = \?/);
-  assert.match(code,/INSERT INTO runs \(payload\) VALUES \(\?\) RETURNING id/);
-  assert.match(code,/updated.rowsAffected !== 1/);
+  assert.match(code,/INSERT INTO runs \(payload\) SELECT \?/);
+  assert.match(code,/results.at\(-1\)\?\.rowsAffected !== 1/);
   assert.doesNotMatch(code,/run.date !== workout.date/);
   assert.doesNotMatch(code,/DELETE FROM runs|DELETE FROM workouts|saveBundle/);
 });

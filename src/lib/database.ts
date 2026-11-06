@@ -393,115 +393,81 @@ export async function completeWorkoutWithRunSafely(
   if (!workoutId || typeof workoutId !== "string" || workoutId.length > 160) {
     throw new RunHistoryConflictError("Missing planned workout. Refresh Stride and try again.");
   }
-  if (!run || !run.date || !run.name?.trim() || !Number.isFinite(Number(run.distance)) ||
-      !Number.isFinite(Number(run.duration)) || !(Number(run.distance) > 0) ||
-      !(Number(run.duration) > 0)) {
+  if (!run || !run.date || !run.name?.trim() ||
+      !Number.isFinite(Number(run.distance)) || !Number.isFinite(Number(run.duration)) ||
+      !(Number(run.distance) > 0) || !(Number(run.duration) > 0)) {
     throw new RunHistoryConflictError("Enter a valid run date, name, distance and duration before saving.");
   }
+  // The actual run date may differ from its planned date. Completion is linked
+  // by the stable workout ID rather than requiring the two dates to match.
+  const before = await getBundle();
+  const workout = before.plan.find(item => String(item.id) === workoutId);
+  if (!workout || workout.strength) throw new RunHistoryConflictError("Planned running workout not found. Refresh Stride.");
+  if (workout.status === "cancelled") throw new RunHistoryConflictError("Restore the cancelled workout before logging it.");
+  const matches = before.runs.filter(item => item.recoveryStatus !== "summary-only" &&
+    (item.linkedWorkoutId === workoutId || (item.date === run.date && item.name === run.name)));
+  if (matches.length > 1) throw new RunHistoryConflictError("Multiple matching runs were found. No changes were made.");
+  const existing = matches[0];
+  if (workout.status === "completed") {
+    if (!existing?.id) throw new RunHistoryConflictError("That workout is already Completed. Refresh Stride.");
+    return { bundle: before, runId: existing.id, inserted: false };
+  }
+  if (workout.status && workout.status !== "planned") throw new RunHistoryConflictError("Workout status changed. Refresh Stride.");
 
-  // An actual run may have happened on a different date than its originally
-  // scheduled session. The stable workout ID (not run.date) controls completion.
-  // Read the current workout WITHIN the write transaction and only change
-  // that single workout row, never the entire Training Block.
-  let recordId = 0;
+  const originalWorkoutPayload = JSON.stringify(workout);
+  const updatedWorkoutPayload = JSON.stringify({ ...workout, status: "completed" });
+  const insertSql = [
+    "INSERT INTO runs (payload) SELECT ?",
+    "WHERE EXISTS (SELECT 1 FROM workouts WHERE id = ? AND payload = ?)",
+    "AND NOT EXISTS (SELECT 1 FROM runs WHERE",
+    "COALESCE(json_extract(payload, '$.recoveryStatus'), '') <> 'summary-only' AND",
+    "(json_extract(payload, '$.linkedWorkoutId') = ? OR",
+    "(json_extract(payload, '$.date') = ? AND json_extract(payload, '$.name') = ?)))",
+  ].join(" ");
+  const insertArgs: (string | number | null)[] = [
+    runPayload({ ...run, linkedWorkoutId: workoutId }),
+    workoutId, originalWorkoutPayload, workoutId, run.date, run.name,
+  ];
+  const completeSql = "UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?";
+  const completeArgs: (string | number | null)[] = [updatedWorkoutPayload, workoutId, originalWorkoutPayload];
+
   let inserted = false;
-  const workoutSql = "SELECT payload FROM workouts WHERE id = ?";
-  const existingSql = "SELECT id, payload FROM runs WHERE " +
-    "json_extract(payload, '$.linkedWorkoutId') = ? OR " +
-    "(json_extract(payload, '$.date') = ? AND json_extract(payload, '$.name') = ?)";
-  const matchExisting = (rows: Array<{ id: number | bigint | string; payload: string }>) =>
-    rows.map(row => ({ id: Number(row.id), run: json<Run>(row.payload, {} as Run) }))
-      .filter(row => row.run.recoveryStatus !== "summary-only" &&
-        (row.run.linkedWorkoutId === workoutId || (row.run.date === run.date && row.run.name === run.name)));
-
   if (cloud) {
-    const tx = await cloud.transaction("write");
-    try {
-      const result = await tx.execute({ sql: workoutSql, args: [workoutId] });
-      const payload = result.rows[0]?.payload;
-      if (typeof payload !== "string") throw new RunHistoryConflictError("Planned workout no longer exists. Refresh Stride.");
-      const workout = json<Workout>(payload, {} as Workout);
-      if (workout.strength || workout.status === "cancelled") {
-        throw new RunHistoryConflictError("This session is cancelled or not a running workout. Restore it before logging.");
-      }
-
-      const candidates = await tx.execute({ sql: existingSql, args: [workoutId, run.date, run.name] });
-      const matching = matchExisting(candidates.rows as unknown as Array<{ id: number; payload: string }>);
-      if (matching.length > 1) {
-        throw new RunHistoryConflictError("More than one matching run exists. No changes were made; review Run History.");
-      }
-      recordId = matching[0]?.id || 0;
-      if (workout.status === "completed") {
-        if (!recordId) throw new RunHistoryConflictError("That workout is already Completed. Refresh Stride.");
-        // A retry cannot create another record or increment progress twice.
-        await tx.rollback();
-      } else {
-        if (workout.status && workout.status !== "planned") {
-          throw new RunHistoryConflictError("Workout status changed. Refresh Stride before logging.");
-        }
-        if (!recordId) {
-          const insertedRow = await tx.execute({
-            sql: "INSERT INTO runs (payload) VALUES (?) RETURNING id",
-            args: [runPayload({ ...run, linkedWorkoutId: workoutId })],
-          });
-          recordId = Number(insertedRow.rows[0]?.id);
-          if (!Number.isInteger(recordId) || recordId <= 0) throw new Error("Inserted run ID missing");
-          inserted = true;
-        }
-        const updated = await tx.execute({
-          sql: "UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?",
-          args: [JSON.stringify({ ...workout, status: "completed" }), workoutId, payload],
-        });
-        if (updated.rowsAffected !== 1) throw new RunHistoryConflictError("Workout changed during save. No changes were committed.");
-        await tx.commit();
-      }
-    } catch (error) {
-      if (!tx.closed) await tx.rollback().catch(() => {});
-      throw error;
-    } finally {
-      tx.close();
+    // Turso SDK batch(write) provides one atomic transaction, including on
+    // HTTP connections. Both operations use the SAME prior-workout guard:
+    // a concurrently changed workout can neither insert a run nor be completed.
+    const statements: { sql: string; args: (string | number | null)[] }[] = [
+      ...(!existing ? [{ sql: insertSql, args: insertArgs }] : []),
+      { sql: completeSql, args: completeArgs },
+    ];
+    const results = await cloud.batch(statements, "write");
+    if (results.at(-1)?.rowsAffected !== 1) {
+      throw new RunHistoryConflictError("The planned workout changed during save. Refresh Stride and retry.");
     }
+    inserted = !existing && results[0]?.rowsAffected === 1;
   } else {
     local!.exec("BEGIN IMMEDIATE");
     try {
-      const row = local!.prepare(workoutSql).get(workoutId) as { payload: string } | undefined;
-      if (!row) throw new RunHistoryConflictError("Planned workout no longer exists. Refresh Stride.");
-      const workout = json<Workout>(row.payload, {} as Workout);
-      if (workout.strength || workout.status === "cancelled") {
-        throw new RunHistoryConflictError("This session is cancelled or not a running workout. Restore it before logging.");
-      }
-      const rows = local!.prepare(existingSql).all(workoutId, run.date, run.name) as Array<{ id: number; payload: string }>;
-      const matching = matchExisting(rows);
-      if (matching.length > 1) throw new RunHistoryConflictError("Multiple matching runs found; no changes made.");
-      recordId = matching[0]?.id || 0;
-      if (workout.status === "completed") {
-        if (!recordId) throw new RunHistoryConflictError("That workout is already Completed. Refresh Stride.");
-      } else {
-        if (workout.status && workout.status !== "planned") throw new RunHistoryConflictError("Workout status changed. Refresh Stride.");
-        if (!recordId) {
-          const result = local!.prepare("INSERT INTO runs (payload) VALUES (?)").run(
-            runPayload({ ...run, linkedWorkoutId: workoutId }),
-          );
-          recordId = Number(result.lastInsertRowid);
-          inserted = true;
-        }
-        const changed = local!.prepare("UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?")
-          .run(JSON.stringify({ ...workout, status: "completed" }), workoutId, row.payload);
-        if (changed.changes !== 1) throw new RunHistoryConflictError("Workout changed during save. No changes were committed.");
+      let insertCount = 0;
+      if (!existing) insertCount = Number(local!.prepare(insertSql).run(...insertArgs).changes);
+      const changed = local!.prepare(completeSql).run(...completeArgs);
+      if (changed.changes !== 1) {
+        throw new RunHistoryConflictError("The planned workout changed during save. No run was added.");
       }
       local!.exec("COMMIT");
+      inserted = insertCount === 1;
     } catch (error) {
       local!.exec("ROLLBACK");
       throw error;
     }
   }
-
   const saved = await getBundle();
-  const completed = saved.plan.find(item => String(item.id) === workoutId);
-  if (completed?.status !== "completed" || !saved.runs.some(item => item.id === recordId)) {
-    throw new RunHistoryConflictError("Could not verify saved run and completed workout. Refresh to see the latest data.");
+  const recorded = saved.runs.find(item => item.linkedWorkoutId === workoutId) ||
+    saved.runs.find(item => item.recoveryStatus !== "summary-only" && item.date === run.date && item.name === run.name);
+  if (saved.plan.find(item => String(item.id) === workoutId)?.status !== "completed" || !recorded?.id) {
+    throw new RunHistoryConflictError("Could not verify both saved run and completed workout. Refresh Stride.");
   }
-  return { bundle: saved, runId: recordId, inserted };
+  return { bundle: saved, runId: recorded.id, inserted };
 }
 
 /**

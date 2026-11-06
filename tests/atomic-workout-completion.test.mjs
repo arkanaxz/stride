@@ -12,7 +12,7 @@ test("planned run completion saves BOTH in one transaction and prevents a duplic
   assert.match(atomic,/local!\.exec\("BEGIN IMMEDIATE"\)/);
   assert.match(atomic,/local!\.exec\("ROLLBACK"\)/);
   assert.match(atomic,/INSERT INTO runs \(payload\) SELECT/);
-  assert.match(atomic,/UPDATE workouts SET payload = json_set/);
+  assert.match(atomic,/UPDATE workouts SET payload = \? WHERE id = \? AND payload = \?/);
   assert.doesNotMatch(atomic,/DELETE FROM runs|DELETE FROM workouts|saveBundle/);
   assert.match(api,/incoming.kind === "complete-workout"/);
   assert.match(dash,/kind: "complete-workout", workoutId: completionWorkout.id, run/);
@@ -30,30 +30,32 @@ test("transaction rollback protects Run History and Training Block from partial 
   db.exec("CREATE TABLE runs(id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL);CREATE TABLE workouts(id TEXT PRIMARY KEY,payload TEXT NOT NULL)");
   const workoutId="sm2sm-2027-gm-2026-11-03-tue";
   db.prepare("INSERT INTO workouts(id,payload) VALUES (?,?)").run(workoutId,JSON.stringify({date:"2026-11-03",status:"planned"}));
+  const original=JSON.stringify({date:"2026-11-03",status:"planned"});
   const insertSql=[
     "INSERT INTO runs (payload) SELECT ?",
-    "WHERE EXISTS (SELECT 1 FROM workouts WHERE id = ?",
-    "AND COALESCE(json_extract(payload, '$.status'), 'planned') = 'planned')",
+    "WHERE EXISTS (SELECT 1 FROM workouts WHERE id = ? AND payload = ?)",
     "AND NOT EXISTS (SELECT 1 FROM runs WHERE",
-    "json_extract(payload, '$.linkedWorkoutId') = ? OR",
-    "(json_extract(payload, '$.date') = ? AND json_extract(payload, '$.name') = ?))",
+    "COALESCE(json_extract(payload, '$.recoveryStatus'), '') <> 'summary-only' AND",
+    "(json_extract(payload, '$.linkedWorkoutId') = ? OR",
+    "(json_extract(payload, '$.date') = ? AND json_extract(payload, '$.name') = ?)))",
   ].join(" ");
-  const updateSql="UPDATE workouts SET payload = json_set(payload, '$.status', 'completed') WHERE id = ? AND COALESCE(json_extract(payload, '$.status'), 'planned') = 'planned'";
+  const updateSql="UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?";
   const run={date:"2026-11-03",name:"Tue: Easy run",distance:6.12,duration:45.15,linkedWorkoutId:workoutId};
+  const after=JSON.stringify({...JSON.parse(original),status:"completed"});
   db.exec("BEGIN IMMEDIATE");
-  db.prepare(insertSql).run(JSON.stringify(run),workoutId,workoutId,run.date,run.name);
-  assert.equal(db.prepare(updateSql).run(workoutId).changes,1);
+  db.prepare(insertSql).run(JSON.stringify(run),workoutId,original,workoutId,run.date,run.name);
+  assert.equal(db.prepare(updateSql).run(after,workoutId,original).changes,1);
   db.exec("COMMIT");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runs").get().n,1);
   assert.equal(JSON.parse(db.prepare("SELECT payload FROM workouts WHERE id=?").get(workoutId).payload).status,"completed");
   db.exec("BEGIN IMMEDIATE");
-  db.prepare(insertSql).run(JSON.stringify(run),workoutId,workoutId,run.date,run.name);
-  db.prepare(updateSql).run(workoutId);
+  db.prepare(insertSql).run(JSON.stringify(run),workoutId,original,workoutId,run.date,run.name);
+  db.prepare(updateSql).run(after,workoutId,original);
   db.exec("COMMIT");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runs").get().n,1);
-  db.prepare("UPDATE workouts SET payload=json_set(payload,'$.status','planned') WHERE id=?").run(workoutId);
+  db.prepare("UPDATE workouts SET payload=? WHERE id=?").run(original,workoutId);
   db.exec("BEGIN IMMEDIATE");
-  db.prepare(insertSql).run(JSON.stringify({...run,name:"A second run"}),workoutId,workoutId,run.date,"A second run");
+  db.prepare(insertSql).run(JSON.stringify({...run,name:"A second run"}),workoutId,original,workoutId,run.date,"A second run");
   try { db.prepare("INSERT INTO table_that_does_not_exist VALUES (1)").run(); } catch { db.exec("ROLLBACK"); }
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM runs").get().n,1);
   assert.equal(JSON.parse(db.prepare("SELECT payload FROM workouts WHERE id=?").get(workoutId).payload).status,"planned");
