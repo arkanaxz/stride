@@ -2,6 +2,12 @@
 
 Stride is a full-stack Next.js application with React and TypeScript. It supports local SQLite for development and remote SQLite through Turso for Vercel hosting. A username and password are required to access the dashboard and its API routes.
 
+## Garmin VO₂ Max tracking and Run History
+
+Stride supports an optional Garmin running VO₂ Max estimate (mL/kg/min) on each run. Enter the value from Garmin Connect or your Garmin watch while logging a run, or edit an existing run to add a historical estimate. Stride does not currently sync with Garmin automatically. A read-only dashboard chart plots the dated estimates, including the most recent value and change from the first recorded value. When multiple run logs on the same date include an estimate, the latest recorded one is shown.
+
+The customizable dashboard Run History table displays **Date first**, while retaining the user's selected columns and widths. Garmin VO₂ Max can be enabled through **Choose columns**, appears in expanded run details, and is included in CSV exports and compatible CSV imports. Recording this optional value does not replace or migrate old run records, training-plan records, or settings.
+
 ## Local development
 
 - Node.js 22.13 or later
