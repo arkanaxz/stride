@@ -1,0 +1,16 @@
+name: Validate atomic workout completion
+on:
+  push:
+    branches: [master]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/atomic-workout-completion.test.mjs
+      - run: npm run build

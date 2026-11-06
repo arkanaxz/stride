@@ -220,14 +220,34 @@ export default function Dashboard({ initialPage = "dashboard" }: { initialPage?:
       if (saved) { formElement.reset(); setRunDialog(false); setEditingRun(null); setWeatherStatus(""); }
       return;
     }
-    const workoutIndex = completionWorkout ? bundle.plan.indexOf(completionWorkout) : -1;
-    const previousStatus = completionWorkout?.status || "planned";
-    const plan = workoutIndex < 0 ? bundle.plan : bundle.plan.map((item, index) => index === workoutIndex ? { ...item, status: "completed" } : item);
-    const saved = await persist({ ...bundle, runs: [...bundle.runs, run], plan }, completionWorkout ? "Workout completed and run logged" : `Run saved to ${bundle.storage === "Turso" ? "Turso" : "your local database"}`);
+    if (completionWorkout) {
+      // Run History and the planned workout status are committed atomically.
+      try {
+        const response = await fetch("/api/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "complete-workout", workoutId: completionWorkout.id, run }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not save the run and complete the workout.");
+        const saved = result as Bundle & { loggedRunId?: number; insertedRun?: boolean };
+        if (saved.plan.find(item => String(item.id) === String(completionWorkout.id))?.status !== "completed") {
+          throw new Error("The workout was not confirmed Completed. Refresh Stride.");
+        }
+        setBundle(saved);
+        setUndoWorkout(null);
+        setToast("Run logged · workout completed · progress updated");
+        formElement.reset(); setRunDialog(false); setCompletionWorkout(null);
+        if (saved.insertedRun && saved.loggedRunId) void analyzeSavedRun(saved.loggedRunId);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Could not complete workout.");
+      }
+      return;
+    }
+    const saved = await persist({ ...bundle, runs: [...bundle.runs, run] }, "Run saved to your database");
     if (saved) {
-      if (workoutIndex >= 0) setUndoWorkout({ index: workoutIndex, status: previousStatus });
       formElement.reset(); setRunDialog(false); setCompletionWorkout(null);
-      const savedRun = saved.runs.find((item) => item.date === run.date && item.name === run.name);
+      const savedRun = saved.runs.find(item => item.date === run.date && item.name === run.name);
       if (savedRun?.id) void analyzeSavedRun(savedRun.id);
     }
   }

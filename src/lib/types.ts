@@ -28,6 +28,8 @@ export type Run = {
   analysisHistory?: AnalysisReview[];
   /** Partial Garmin-only reconstruction of a missing original run record. */
   recoveryStatus?: "summary-only";
+  /** Planned workout linked by an atomic run-and-completion save. */
+  linkedWorkoutId?: string;
 };
 
 export type AnalysisReview = {

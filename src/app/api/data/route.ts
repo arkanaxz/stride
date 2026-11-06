@@ -1,6 +1,6 @@
 import { currentUser } from "@/lib/auth";
-import { ensureAuthoritativeWorkbookPlan, ensureVerifiedGarminRunRecovery, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
-import type { Bundle } from "@/lib/types";
+import { ensureAuthoritativeWorkbookPlan, ensureVerifiedGarminRunRecovery, reconcileNov3WorkoutCompletion, completeWorkoutWithRunSafely, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
+import type { Bundle, Run } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export async function GET() {
   if (!user) return Response.json({ error: "Please sign in." }, { status: 401 });
   await ensureAuthoritativeWorkbookPlan();
   await ensureVerifiedGarminRunRecovery();
+  await reconcileNov3WorkoutCompletion();
   const [bundle, comments] = await Promise.all([getBundle(), getComments()]);
   let shoeMileageBase: Record<string, number> = {};
   try { shoeMileageBase = JSON.parse(String(bundle.meta.shoeMileageBase || "{}")) as Record<string, number>; } catch { /* no baseline saved */ }
@@ -19,7 +20,24 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser();
   if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
-  const incoming = await request.json() as Partial<Bundle> & { kind?: string };
+  const incoming = await request.json() as Partial<Bundle> & { kind?: string; workoutId?: string; run?: Run };
+  if (incoming.kind === "complete-workout") {
+    try {
+      const completed = await completeWorkoutWithRunSafely(String(incoming.workoutId || ""), incoming.run!);
+      const comments = await getComments();
+      let shoeMileageBase: Record<string, number> = {};
+      try { shoeMileageBase = JSON.parse(String(completed.bundle.meta.shoeMileageBase || "{}")) as Record<string, number>; } catch { /* keep existing baseline */ }
+      return Response.json({
+        ...completed.bundle, comments, shoeMileageBase,
+        user: { username: user.username, role: user.role },
+        loggedRunId: completed.runId,
+        insertedRun: completed.inserted,
+      });
+    } catch (reason) {
+      if (reason instanceof RunHistoryConflictError) return Response.json({ error: reason.message }, { status: 409 });
+      return Response.json({ error: "Could not save run and workout together. No partial completion was allowed." }, { status: 500 });
+    }
+  }
   if (incoming.kind === "bootstrap") {
     // Never migrate stale browser storage over an existing server database.
     // Return the authoritative data to older clients without writing anything.
