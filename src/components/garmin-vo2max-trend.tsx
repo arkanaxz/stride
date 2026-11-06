@@ -12,7 +12,7 @@ function vo2Points(runs: Run[]): Vo2Point[] {
   const ordered = [...runs].sort((a, b) => a.date.localeCompare(b.date) || Number(a.id || 0) - Number(b.id || 0));
   for (const run of ordered) {
     const value = Number(run.garminVo2Max);
-    if (run.garminVo2Max == null || run.garminVo2Max === "" || !Number.isFinite(value) || value < 10 || value > 100) continue;
+    if (run.garminVo2Max == null || !Number.isFinite(value) || value < 10 || value > 100) continue;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(run.date)) continue;
     byDate.set(run.date, value);
   }
