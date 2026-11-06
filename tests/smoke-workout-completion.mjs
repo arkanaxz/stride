@@ -13,6 +13,12 @@ const env={...process.env,STRIDE_DB_PATH:join(folder,"test.sqlite"),STRIDE_USERN
   STRIDE_PASSWORD:"smoke_password_not_used_in_production",
   STRIDE_SESSION_SECRET:"local-only-test-secret-"+randomUUID(),
   PORT:String(port)};
+// Exercise the Turso SDK path with an isolated file: URL in addition
+// to the native SQLite path. No connection to the user's cloud database.
+if (process.env.SMOKE_LIBSQL === "1") {
+  env.TURSO_DATABASE_URL = "file:" + join(folder, "libsql-smoke.sqlite");
+  env.TURSO_AUTH_TOKEN = "local-smoke-test-only";
+}
 const proc=spawn(process.execPath,["node_modules/next/dist/bin/next","start","-H","127.0.0.1","-p",String(port)],{
   env,stdio:"ignore",
 });
