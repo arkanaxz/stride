@@ -67,7 +67,7 @@ export default function GarminVo2MaxTrend({ runs }: { runs: Run[] }) {
       </div>
     </div>
     {data.length ? <div className="vo2-chart-wrap">
-      <svg className="vo2-chart-svg" viewBox="0 0 720 228" role="img" aria-label={"Garmin VO2 max from " + dateLabel(first.date) + " to " + dateLabel(latest.date)}>
+      <svg className="vo2-chart-svg" viewBox="0 0 720 228" role="img" aria-label={"Garmin VO2 max from " + dateLabel(first.date) + " to " + dateLabel(latest!.date)}>
         {grid.map((tick, index) => <g key={index}>
           <line x1={plot.left} y1={tick.y} x2={plot.right} y2={tick.y} className="gridline" />
           <text x={plot.left - 12} y={tick.y + 4} textAnchor="end" className="vo2-axis-label">{tick.value}</text>
