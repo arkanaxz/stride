@@ -20,6 +20,8 @@ export type Run = {
   painNext?: string;
   effort?: number | null;
   rpe?: number | null;
+  /** Garmin Connect / Garmin watch estimated running VO2 max (mL/kg/min). */
+  garminVo2Max?: number | null;
   shoes?: string;
   notes?: string;
   analysis?: string;
