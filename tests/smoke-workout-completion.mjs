@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { rmSync, mkdirSync } from "node:fs";
 
-const port=4651;
+const port=process.env.SMOKE_LIBSQL === "1" ? 4652 : 4651;
 const base="http://127.0.0.1:"+port;
 const folder=join(tmpdir(),"stride-workout-smoke-"+randomUUID());
 mkdirSync(folder,{recursive:true});
