@@ -14,4 +14,5 @@ jobs:
       - run: npm ci
       - run: node --test tests/history-weekday-weather.test.mjs
       - run: node --test tests/chart-mileage.test.mjs
+      - run: node --experimental-strip-types --test tests/vo2-date-filter.test.mjs
       - run: npm run build

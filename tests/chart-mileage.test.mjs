@@ -18,7 +18,7 @@ test("weekly and monthly totals follow the existing period selector and navigati
   assert.match(code, /chartShift === 0 \? "This month" : "Selected month"/);
   assert.match(code, /setChartMode\(event.target.value as "week" \| "month"\)/);
   assert.match(code, /setChartShift\(\(value\) => value - 1\)/);
-  assert.match(code, /setChartShift\(\(value\) => Math\.min\(0, value \+ 1\)\)/);
+  assert.match(code, /setChartShift\(\(value\) => value \+ 1\)/);
 });
 
 test("the monthly chart bins include only runs from the selected calendar month", () => {

@@ -115,3 +115,12 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .chart-mileage>span{font-size:11px;color:var(--muted);font-weight:650}
 .chart-mileage>strong{font-size:24px;letter-spacing:-.7px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .chart-mileage>strong small{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0}
+
+/* Garmin VO2 Max date-range controls; shared color variables across themes. */
+.vo2-range-controls{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin:15px 0 0;padding:12px 0 2px;border-top:1px solid var(--line)}
+.vo2-range-controls .compact-field{min-width:130px}
+.vo2-range-controls select{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px}
+.vo2-range-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:11px}
+.vo2-range-nav .btn{padding:6px 10px}
+.vo2-range-nav>span{min-width:90px;text-align:center}
+@media(max-width:680px){.vo2-range-controls{align-items:start}.vo2-range-nav{justify-content:flex-start}}
