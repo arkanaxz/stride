@@ -29,5 +29,5 @@ test("the monthly chart bins include only runs from the selected calendar month"
 
 test("this presentation-only change does not alter run persistence or the workout plan", () => {
   assert.ok(code.includes("complete-workout"));
-  assert.ok(code.includes("const completedCount = bundle.plan.filter"));
+  assert.ok(code.includes("const completedCount = activePlan.filter"));
 });

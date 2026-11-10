@@ -62,7 +62,7 @@ test("transaction rollback protects Run History and Training Block from partial 
   db.close();
 });
 test("Training Block progress uses updated status and the server-returned bundle",()=>{
-  assert.match(dash,/bundle.plan.filter\(\(workout\) => workout.status === "completed"\)\.length/);
+  assert.match(dash,/activePlan.filter\(\(workout\) => workout.status === "completed"\)\.length/);
   assert.match(dash,/plannedCount \? completedCount \/ plannedCount \* 100 : 0/);
   assert.match(dash,/setBundle\(saved\)/);
 });

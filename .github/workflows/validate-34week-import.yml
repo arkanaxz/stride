@@ -16,6 +16,7 @@ jobs:
       - run: npm ci
       - run: node --experimental-strip-types --test tests/34-week-plan.test.mjs
       - run: node --test tests/34-week-backup-static.test.mjs
+      - run: node --test tests/empty-backup-manifest.test.mjs
       - run: npm run build
       - run: node tests/smoke-34week-backup.mjs
       - run: SMOKE_LIBSQL=1 node tests/smoke-34week-backup.mjs

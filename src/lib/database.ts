@@ -313,6 +313,19 @@ export async function ensureSub2034WeekPlan(): Promise<void> {
     { table: "workout_plan_backups", id: "migration_key || ':' || workout_id", payload: "json_object('migration_key',migration_key,'workout_id',workout_id,'payload',payload,'saved_at',saved_at)" },
   ];
 
+  // A snapshot must be representable even if the database is brand-new and
+  // every source table is empty. Preserve a manifest in the same transaction
+  // BEFORE copying rows or modifying any workout.
+  const tableCountsSql = "json_object(" + backupTables.map(source =>
+    "'" + source.table + "', (SELECT COUNT(*) FROM " + source.table + ")"
+  ).join(", ") + ")";
+  const backupManifest = {
+    sql: "INSERT OR IGNORE INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
+      "SELECT ?, 'manifest', '__snapshot', json_object(" +
+      "'version', 1, 'source', 'before-sub20-34week-plan', 'rowCounts', " + tableCountsSql + ") " +
+      "WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?)",
+    args: [SUB20_34W_BACKUP_KEY, SUB20_34W_IMPORT_KEY],
+  };
   const backup = backupTables.map(source => ({
     sql: "INSERT OR IGNORE INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
       "SELECT ?, ?, " + source.id + ", " + source.payload +
@@ -346,6 +359,7 @@ export async function ensureSub2034WeekPlan(): Promise<void> {
   });
   const markerInsert = "INSERT INTO metadata(key,value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING";
   const sql: { sql: string; args: (string | number | null)[] }[] = [
+    backupManifest,
     ...backup,
     { sql: supersedeSql, args: [SUB20_34W_IMPORT_KEY, SUB20_34W_PRESERVE_THROUGH, SUB20_34W_IMPORT_KEY] },
     { sql: insertSql, args: [sourceRows, SUB20_34W_IMPORT_KEY] },
