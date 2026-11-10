@@ -17,6 +17,7 @@ test("backup link has moved off Training Block and into Settings",()=>{
   const settings=ui.slice(ui.indexOf("function Settings("));
   assert.ok(settings.includes("<BackupManager onToast={onToast}/>"));
   assert.match(css,/\.backup-manager-header/);
+  assert.ok(ui.includes('const isSub20CurrentPlan = (bundle.meta.title || "").startsWith("Sub-20 5K")'));
 });
 test("recovery listing is dynamic, admin-only and does not expose stored passwords",()=>{
   assert.match(list,/user\?\.role !== "admin"/);

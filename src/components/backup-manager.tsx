@@ -82,7 +82,7 @@ export default function BackupManager({ onToast }: { onToast: (message: string) 
       {points.map(point => <div className="backup-entry" key={point.id}>
         <div className="backup-description">
           <strong>{point.label}</strong>
-          <small>{point.createdAt ? new Date(point.createdAt.endsWith("Z") ? point.createdAt : point.createdAt.replace(" ", "T") + "Z").toLocaleString() : "Unknown date"} · {point.runs} run records · {point.workouts} planned workout records</small>
+          <small>{point.createdAt ? new Date(point.createdAt.endsWith("Z") ? point.createdAt : point.createdAt.replace(" ", "T") + "Z").toLocaleString() : "Unknown date"} · {point.runs} run records · {point.workouts} workout records</small>
           <small>{point.kind === "pre-import" ? "Historical checkpoint" : point.kind === "before-restore" ? "Before plan restore" : "Manual recovery point"}</small>
         </div>
         <div className="backup-actions">

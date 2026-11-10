@@ -25,6 +25,9 @@ const previousWorkouts = [
   { id:"prev-future-planned",week:2,date:"2026-11-11",day:"Wed",session:"Old future prescription",status:"planned" },
   { id:"prev-future-cancelled",week:3,date:"2026-11-17",day:"Tue",session:"Old cancelled session",status:"cancelled" },
   { id:"prev-future-completed",week:3,date:"2026-11-18",day:"Wed",session:"Existing completed session",status:"completed" },
+  { id:"2099-future-planned",week:999,date:"2099-11-11",day:"Wed",session:"Long-term recovery fixture",status:"planned" },
+  { id:"2099-future-cancelled",week:999,date:"2099-11-17",day:"Tue",session:"Long-term cancelled fixture",status:"cancelled" },
+  { id:"2099-future-completed",week:999,date:"2099-11-18",day:"Wed",session:"Long-term completed fixture",status:"completed" },
 ];
 for (const workout of previousWorkouts) db.prepare("INSERT INTO workouts(id,payload) VALUES (?,?)").run(workout.id,JSON.stringify(workout));
 const originalRun={date:"2026-11-03",name:"Preserved real run",type:"Easy",distance:6.12,duration:45.3,garminVo2Max:47.2,notes:"KEEP THIS!"};
@@ -98,7 +101,7 @@ try {
   assert.equal(snapshot.snapshotKey,"before_sub20_34week_20261110_v1");
   assert.equal(snapshot.containsSensitiveCredentials,true);
   assert.equal(snapshot.tables.runs.length,1);
-  assert.equal(snapshot.tables.workouts.length,5);
+  assert.equal(snapshot.tables.workouts.length,previousWorkouts.length);
   assert.equal(snapshot.tables.secrets.length,1);
   assert.equal(snapshot.tables.settings.length,1);
   assert.equal(snapshot.tables.run_comments.length,1);
@@ -144,8 +147,9 @@ try {
   assert.equal(recovered.data.plan.find(w=>w.id==="prev-today").target,previousWorkouts[1].target,"Today unchanged");
   assert.equal(recovered.data.plan.find(w=>w.id==="prev-nov03").status,"completed","Past completed unchanged");
   assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-completed").status,"completed","Completed future unchanged");
-  assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-planned").status,"planned","Older prescription recovered");
-  assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-cancelled").status,"cancelled","Previously cancelled restored");
+  assert.equal(recovered.data.plan.find(w=>w.id==="2099-future-planned").status,"planned","Future backed-up prescription recovered");
+  assert.equal(recovered.data.plan.find(w=>w.id==="2099-future-cancelled").status,"cancelled","Previously cancelled future session restored");
+  assert.equal(recovered.data.plan.find(w=>w.id==="2099-future-completed").status,"completed","Future completion preserved");
   assert.equal(recovered.data.meta.title,"Old SM2SM plan","Title restored to selected snapshot");
   const latest=await json("/api/backups",{headers});
   assert.ok(latest.data.points.some(item=>item.id===restore.data.beforeRestoreKey && item.kind==="before-restore"));
