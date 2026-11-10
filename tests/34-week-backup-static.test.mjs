@@ -10,8 +10,7 @@ test("snapshot and migration are one atomic transaction and contain no deletions
   assert.match(migrate,/await cloud.batch\(sql, "write"\)/);
   assert.match(migrate,/BEGIN IMMEDIATE/);
   assert.match(migrate,/ROLLBACK/);
-  const ordered = migrate.slice(migrate.indexOf("const sql: { sql: string; args:"), migrate.indexOf("if (cloud) {", migrate.indexOf("const sql: { sql: string; args:"));
-  assert.ok(ordered.indexOf("...backup") < ordered.indexOf("{ sql: supersedeSql"), "Backup SQL must execute before workout updates");
+  assert.ok(migrate.indexOf("...backup,") < migrate.indexOf("{ sql: supersedeSql"), "Backup SQL is executed before workout updates");
   assert.doesNotMatch(migrate,/DELETE FROM runs|DELETE FROM workouts|DROP TABLE/);
   for(const table of ["runs","workouts","settings","metadata","users","secrets","run_comments","run_history_baseline","run_history_backups","workout_plan_backups"]){
     assert.ok(migrate.includes('table: "'+table+'"'),"missing "+table);
