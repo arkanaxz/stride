@@ -1,5 +1,5 @@
 import { currentUser } from "@/lib/auth";
-import { ensureAuthoritativeWorkbookPlan, ensureVerifiedGarminRunRecovery, reconcileNov3WorkoutCompletion, completeWorkoutWithRunSafely, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
+import { ensureSub2034WeekPlan, ensureVerifiedGarminRunRecovery, reconcileNov3WorkoutCompletion, completeWorkoutWithRunSafely, getBundle, getComments, saveBundle, updateRunHistorySafely, RunHistoryConflictError } from "@/lib/database";
 import type { Bundle, Run } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await currentUser();
   if (!user) return Response.json({ error: "Please sign in." }, { status: 401 });
-  await ensureAuthoritativeWorkbookPlan();
+  await ensureSub2034WeekPlan();
   await ensureVerifiedGarminRunRecovery();
   await reconcileNov3WorkoutCompletion();
   const [bundle, comments] = await Promise.all([getBundle(), getComments()]);

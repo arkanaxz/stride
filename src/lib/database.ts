@@ -7,6 +7,7 @@ import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
 import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
 import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
 import { VERIFIED_GARMIN_RECOVERY_KEY, verifiedGarminRunSummaries } from "@/lib/recovered-garmin-runs";
+import { SUB20_34W_BACKUP_KEY, SUB20_34W_IMPORT_KEY, SUB20_34W_PRESERVE_THROUGH, SUB20_34W_TITLE, sub20Workouts } from "@/lib/sub20-34week-plan";
 
 const defaultPreferences: Preferences = {
   defaultLocation: "Lapu-Lapu City, Cebu, Philippines",
@@ -54,6 +55,7 @@ async function ensureReady() {
         "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer')",
         "CREATE TABLE IF NOT EXISTS run_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, username TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
         "CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS stride_backup_rows (snapshot_key TEXT NOT NULL, table_name TEXT NOT NULL, row_key TEXT NOT NULL, payload TEXT NOT NULL, captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (snapshot_key, table_name, row_key))",
       ];
       if (cloud) {
         for (const sql of schema) await cloud.execute(sql);
@@ -274,6 +276,130 @@ export async function ensureVerifiedGarminRunRecovery(): Promise<void> {
     local!.exec("ROLLBACK");
     throw error;
   }
+}
+
+
+/**
+ * One-time non-destructive transition to the uploaded sub-20 34-week plan.
+ *
+ * BEFORE touching any planned workout, the SAME database transaction captures
+ * full copies of runs (including reviews), workouts, preferences, metadata,
+ * users, encrypted secrets, comments, baseline and historical backup journals.
+ * A failure rolls back both snapshot and migration. No original row is deleted.
+ *
+ * Old future non-completed workouts become "superseded" with previousStatus
+ * preserved inside their JSON payload. Nov 10 and earlier, and ALL completed
+ * entries, remain unchanged. New IDs are unique and inserted only once.
+ */
+export async function ensureSub2034WeekPlan(): Promise<void> {
+  await ensureReady();
+  const imported = sub20Workouts(); // Check integrity/count before any database writes.
+  const markerSql = "SELECT value FROM metadata WHERE key = ? LIMIT 1";
+  const exists = cloud
+    ? (await cloud.execute({ sql: markerSql, args: [SUB20_34W_IMPORT_KEY] })).rows.length > 0
+    : Boolean(local!.prepare(markerSql).get(SUB20_34W_IMPORT_KEY));
+  if (exists) return;
+
+  const backupTables: Array<{ table: string; id: string; payload: string }> = [
+    { table: "runs", id: "CAST(id AS TEXT)", payload: "json_object('id',id,'payload',payload)" },
+    { table: "workouts", id: "id", payload: "json_object('id',id,'payload',payload)" },
+    { table: "settings", id: "key", payload: "json_object('key',key,'value',value)" },
+    { table: "metadata", id: "key", payload: "json_object('key',key,'value',value)" },
+    { table: "users", id: "id", payload: "json_object('id',id,'username',username,'salt',salt,'password_hash',password_hash,'role',role)" },
+    { table: "secrets", id: "key", payload: "json_object('key',key,'value',value)" },
+    { table: "run_comments", id: "CAST(id AS TEXT)", payload: "json_object('id',id,'runId',run_id,'username',username,'text',text,'createdAt',created_at)" },
+    { table: "run_history_baseline", id: "CAST(run_id AS TEXT)", payload: "json_object('run_id',run_id,'payload',payload,'captured_at',captured_at)" },
+    { table: "run_history_backups", id: "CAST(backup_id AS TEXT)", payload: "json_object('backup_id',backup_id,'run_id',run_id,'payload',payload,'reason',reason,'captured_at',captured_at)" },
+    { table: "workout_plan_backups", id: "migration_key || ':' || workout_id", payload: "json_object('migration_key',migration_key,'workout_id',workout_id,'payload',payload,'saved_at',saved_at)" },
+  ];
+
+  const backup = backupTables.map(source => ({
+    sql: "INSERT OR IGNORE INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
+      "SELECT ?, ?, " + source.id + ", " + source.payload +
+      " FROM " + source.table +
+      " WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?)",
+    args: [SUB20_34W_BACKUP_KEY, source.table, SUB20_34W_IMPORT_KEY],
+  }));
+  const supersedeSql =
+    "UPDATE workouts SET payload = json_set(payload, '$.previousStatus', " +
+    "COALESCE(json_extract(payload, '$.status'), 'planned'), '$.status', 'superseded', " +
+    "'$.supersededBy', ?) " +
+    "WHERE json_extract(payload, '$.date') > ? " +
+    "AND COALESCE(json_extract(payload, '$.status'), 'planned') != 'completed' " +
+    "AND id NOT LIKE 'sub20-34w-%' " +
+    "AND NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?)";
+  const sourceRows = JSON.stringify(imported.map(row => [String(row.id), JSON.stringify(row)]));
+  const insertSql =
+    "INSERT INTO workouts(id,payload) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') " +
+    "FROM json_each(?) WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?) " +
+    "ON CONFLICT(id) DO NOTHING";
+  const titleSql =
+    "INSERT INTO metadata(key,value) SELECT 'title', ? " +
+    "WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?) " +
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value";
+  const markerValue = JSON.stringify({
+    importedFrom: ["34-Week Plan", "Strength A and B"],
+    preservedThrough: SUB20_34W_PRESERVE_THROUGH,
+    newWorkouts: imported.length,
+    backupSnapshot: SUB20_34W_BACKUP_KEY,
+    oldWorkouts: "retained in workouts with status superseded",
+  });
+  const markerInsert = "INSERT INTO metadata(key,value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING";
+  const sql: { sql: string; args: (string | number | null)[] }[] = [
+    ...backup,
+    { sql: supersedeSql, args: [SUB20_34W_IMPORT_KEY, SUB20_34W_PRESERVE_THROUGH, SUB20_34W_IMPORT_KEY] },
+    { sql: insertSql, args: [sourceRows, SUB20_34W_IMPORT_KEY] },
+    { sql: titleSql, args: [JSON.stringify(SUB20_34W_TITLE), SUB20_34W_IMPORT_KEY] },
+    { sql: markerInsert, args: [SUB20_34W_IMPORT_KEY, markerValue] },
+  ];
+  if (cloud) {
+    await cloud.batch(sql, "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of sql) local!.prepare(statement.sql).run(...statement.args);
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  const verification = cloud
+    ? await cloud.execute({
+      sql: "SELECT COUNT(*) AS n FROM stride_backup_rows WHERE snapshot_key = ?",
+      args: [SUB20_34W_BACKUP_KEY],
+    })
+    : { rows: [local!.prepare("SELECT COUNT(*) AS n FROM stride_backup_rows WHERE snapshot_key = ?").get(SUB20_34W_BACKUP_KEY)] };
+  if (Number(verification.rows[0]?.n) < 1) throw new Error("Pre-update backup was not verified; do not continue.");
+}
+
+/** Admin-only export of the pre-import snapshot; treat this file as sensitive. */
+export async function exportPre34WeekSnapshot() {
+  await ensureReady();
+  const statement = {
+    sql: "SELECT table_name, row_key, payload, captured_at FROM stride_backup_rows WHERE snapshot_key = ? ORDER BY table_name, row_key",
+    args: [SUB20_34W_BACKUP_KEY],
+  };
+  const rows = cloud
+    ? (await cloud.execute(statement)).rows
+    : local!.prepare(statement.sql).all(...statement.args);
+  if (!rows.length) return null;
+  const tables: Record<string, unknown[]> = {};
+  for (const row of rows) {
+    const table = String(row.table_name);
+    if (!tables[table]) tables[table] = [];
+    tables[table].push(JSON.parse(String(row.payload)));
+  }
+  return {
+    format: "stride-complete-pre-migration-snapshot-v1",
+    snapshotKey: SUB20_34W_BACKUP_KEY,
+    containsSensitiveCredentials: true,
+    instruction: "Private backup: contains account password hashes and encrypted API keys. Do not share publicly.",
+    includes: Object.fromEntries(Object.entries(tables).map(([name, values]) => [name, values.length])),
+    capturedAt: String(rows[0].captured_at),
+    tables,
+  };
 }
 
 export async function getBundle(): Promise<Bundle> {
