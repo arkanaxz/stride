@@ -107,13 +107,58 @@ try {
   assert.equal(JSON.parse(snapshot.tables.metadata.find(x=>x.key==="title").value),"Old SM2SM plan");
   assert.equal(snapshot.tables.secrets[0].value,"ENCRYPTED_TEST_VALUE");
 
+  // Backup management: only the administrator can inspect or change checkpoints.
+  assert.ok([401,403].includes((await json("/api/backups")).status));
+  assert.ok([401,403].includes((await json("/api/backups/restore-plan",{
+    method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({key:"before_sub20_34week_20261110_v1",confirm:"RESTORE PLAN"}),
+  })).status));
+  const list=await json("/api/backups",{headers});
+  assert.equal(list.status,200,JSON.stringify(list.data));
+  assert.ok(list.data.points.some(item=>item.id==="before_sub20_34week_20261110_v1"));
+  assert.ok(!JSON.stringify(list.data).includes("ENCRYPTED_TEST_VALUE"),"Listing excludes secret values");
+  const manual=await json("/api/backups",{method:"POST",headers});
+  assert.equal(manual.status,200,JSON.stringify(manual.data));
+  const newId=manual.data.backup.id;
+  assert.match(newId,/^stride_recovery_[0-9a-f-]{36}$/);
+  assert.ok(manual.data.backup.workouts>=first.data.plan.length);
+  const external=await fetch(root+"/api/backups/"+newId,{headers});
+  assert.equal(external.status,200);
+  assert.match(external.headers.get("content-disposition")||"",/attachment/);
+  const downloaded=await external.json();
+  assert.equal(downloaded.snapshotKey,newId);
+  assert.ok(downloaded.tables.runs.length>=1);
+  assert.equal(downloaded.tables.secrets[0].value,"ENCRYPTED_TEST_VALUE");
+
+  const invalid=await json("/api/backups/restore-plan",{method:"POST",headers,
+    body:JSON.stringify({key:"before_sub20_34week_20261110_v1",confirm:"NO"})});
+  assert.equal(invalid.status,400,"No plan changes without exact confirmation");
+  const restore=await json("/api/backups/restore-plan",{method:"POST",headers,
+    body:JSON.stringify({key:"before_sub20_34week_20261110_v1",confirm:"RESTORE PLAN"})});
+  assert.equal(restore.status,200,JSON.stringify(restore.data));
+  assert.match(restore.data.beforeRestoreKey,/^stride_recovery_[0-9a-f-]{36}$/);
+  const recovered=await json("/api/data",{headers});
+  assert.equal(recovered.status,200);
+  assert.equal(recovered.data.runs.length,1,"Restore does not delete or add runs");
+  assert.equal(recovered.data.runs[0].notes,originalRun.notes,"Run history untouched");
+  assert.equal(recovered.data.plan.find(w=>w.id==="prev-today").target,previousWorkouts[1].target,"Today unchanged");
+  assert.equal(recovered.data.plan.find(w=>w.id==="prev-nov03").status,"completed","Past completed unchanged");
+  assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-completed").status,"completed","Completed future unchanged");
+  assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-planned").status,"planned","Older prescription recovered");
+  assert.equal(recovered.data.plan.find(w=>w.id==="prev-future-cancelled").status,"cancelled","Previously cancelled restored");
+  assert.equal(recovered.data.meta.title,"Old SM2SM plan","Title restored to selected snapshot");
+  const latest=await json("/api/backups",{headers});
+  assert.ok(latest.data.points.some(item=>item.id===restore.data.beforeRestoreKey && item.kind==="before-restore"));
+  assert.ok(latest.data.points.some(item=>item.id===newId));
+  assert.ok(latest.data.points.some(item=>item.id==="before_sub20_34week_20261110_v1"));
+
   const second=await json("/api/data",{headers});
   assert.equal(second.status,200);
   assert.equal(second.data.plan.length,first.data.plan.length,"Idempotent: no duplicate records");
   assert.equal(second.data.runs.length,1);
   const stale=await json("/api/data",{method:"PUT",headers,body:JSON.stringify({plan:previousWorkouts})});
   assert.equal(stale.status,409,"Old browser tab cannot overwrite the imported plan");
-  console.log("PASS backup-first 34-week migration, complete snapshot, Nov10 preserved, run history untouched, idempotence and stale-tab protection",libsql?"libsql":"sqlite");
+  console.log("PASS backup list, create, private download, confirmed non-destructive restore, pre-restore checkpoint, idempotence and stale-tab protection",libsql?"libsql":"sqlite");
 } finally {
   server.kill("SIGTERM");
   rmSync(dir,{recursive:true,force:true});

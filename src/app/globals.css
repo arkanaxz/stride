@@ -124,3 +124,22 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .vo2-range-nav .btn{padding:6px 10px}
 .vo2-range-nav>span{min-width:90px;text-align:center}
 @media(max-width:680px){.vo2-range-controls{align-items:start}.vo2-range-nav{justify-content:flex-start}}
+
+/* Admin-only recovery controls in Settings, never inside the Training Block. */
+.backup-manager{margin-bottom:16px}
+.backup-manager-header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px}
+.backup-manager-header>div{flex:1;min-width:220px}
+.backup-manager-header p{margin:5px 0 8px}
+.backup-private-note{margin:10px 0 14px}
+.backup-list{display:grid;border-top:1px solid var(--line)}
+.backup-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.backup-description{display:grid;gap:5px;min-width:220px;flex:1;overflow-wrap:anywhere}
+.backup-description>strong{font-size:13px}
+.backup-description>small{color:var(--muted);font-size:11px}
+.backup-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.backup-restore-confirm{margin-top:15px;padding:15px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.backup-restore-confirm h3{font-size:14px;margin:0 0 8px}
+.backup-restore-confirm p{font-size:12px;line-height:1.6}
+.backup-restore-confirm label{display:grid;gap:7px;font-size:12px;margin:12px 0}
+.backup-restore-confirm input{max-width:320px;width:100%;padding:10px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px}
+@media(max-width:680px){.backup-entry{align-items:stretch}.backup-actions{width:100%}}

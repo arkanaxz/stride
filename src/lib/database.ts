@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@libsql/client";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -386,6 +387,215 @@ export async function ensureSub2034WeekPlan(): Promise<void> {
     })
     : { rows: [local!.prepare("SELECT COUNT(*) AS n FROM stride_backup_rows WHERE snapshot_key = ?").get(SUB20_34W_BACKUP_KEY)] };
   if (Number(verification.rows[0]?.n) < 1) throw new Error("Pre-update backup was not verified; do not continue.");
+}
+
+
+/**
+ * Recovery-point operations. Database-only snapshots are stored in
+ * stride_backup_rows, with an independent download for safe offsite storage.
+ * This does not capture Vercel's environment variables.
+ */
+const RECOVERY_SOURCES: ReadonlyArray<{ table: string; id: string; payload: string }> = [
+  { table: "runs", id: "CAST(id AS TEXT)", payload: "json_object('id',id,'payload',payload)" },
+  { table: "workouts", id: "id", payload: "json_object('id',id,'payload',payload)" },
+  { table: "settings", id: "key", payload: "json_object('key',key,'value',value)" },
+  { table: "metadata", id: "key", payload: "json_object('key',key,'value',value)" },
+  { table: "users", id: "id", payload: "json_object('id',id,'username',username,'salt',salt,'password_hash',password_hash,'role',role)" },
+  { table: "secrets", id: "key", payload: "json_object('key',key,'value',value)" },
+  { table: "run_comments", id: "CAST(id AS TEXT)", payload: "json_object('id',id,'runId',run_id,'username',username,'text',text,'createdAt',created_at)" },
+  { table: "run_history_baseline", id: "CAST(run_id AS TEXT)", payload: "json_object('run_id',run_id,'payload',payload,'captured_at',captured_at)" },
+  { table: "run_history_backups", id: "CAST(backup_id AS TEXT)", payload: "json_object('backup_id',backup_id,'run_id',run_id,'payload',payload,'reason',reason,'captured_at',captured_at)" },
+  { table: "workout_plan_backups", id: "migration_key || ':' || workout_id", payload: "json_object('migration_key',migration_key,'workout_id',workout_id,'payload',payload,'saved_at',saved_at)" },
+];
+
+export type RecoveryPoint = {
+  id: string;
+  label: string;
+  createdAt: string;
+  kind: "pre-import" | "manual" | "before-restore";
+  runs: number;
+  workouts: number;
+  totalRows: number;
+};
+
+function recoveryKeyValid(key: string) {
+  return /^(before_sub20_34week_20261110_v1|stride_recovery_[0-9a-f-]{36})$/.test(key);
+}
+
+function recoverableSnapshotStatements(
+  key: string,
+  label: string,
+  kind: "manual" | "before-restore",
+): Array<{ sql: string; args: (string | number | null)[] }> {
+  const details = JSON.stringify({ label, kind, createdAt: new Date().toISOString(), format: "stride-database-snapshot-v2" });
+  const rows = RECOVERY_SOURCES.map(source => ({
+    sql: "INSERT INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
+      "SELECT ?, ?, " + source.id + ", " + source.payload + " FROM " + source.table,
+    args: [key, source.table] as (string | number | null)[],
+  }));
+  return [
+    { sql: "INSERT INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) VALUES (?, 'manifest', '__snapshot', ?)", args: [key, details] },
+    ...rows,
+  ];
+}
+
+function manilaToday(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  return ["year", "month", "day"].map(type => parts.find(part => part.type === type)?.value || "").join("-");
+}
+
+export async function listRecoveryPoints(): Promise<RecoveryPoint[]> {
+  await ensureReady();
+  const query = "SELECT snapshot_key, MIN(captured_at) AS created_at, " +
+    "SUM(CASE WHEN table_name = 'runs' THEN 1 ELSE 0 END) AS runs, " +
+    "SUM(CASE WHEN table_name = 'workouts' THEN 1 ELSE 0 END) AS workouts, " +
+    "COUNT(*) AS total_rows, " +
+    "MAX(CASE WHEN table_name = 'manifest' THEN payload ELSE NULL END) AS manifest " +
+    "FROM stride_backup_rows GROUP BY snapshot_key ORDER BY created_at DESC, snapshot_key DESC";
+  const rows = cloud ? (await cloud.execute(query)).rows : local!.prepare(query).all();
+  return rows.map(row => {
+    const id = String(row.snapshot_key);
+    const fallback = id === SUB20_34W_BACKUP_KEY ? "Before 34-week plan import" : "Stride recovery point";
+    const parsed = row.manifest ? json<{ label?: string; kind?: RecoveryPoint["kind"]; createdAt?: string }>(String(row.manifest), {}) : {};
+    return {
+      id,
+      label: parsed.label || fallback,
+      createdAt: parsed.createdAt || String(row.created_at || ""),
+      kind: parsed.kind === "manual" || parsed.kind === "before-restore" ? parsed.kind : "pre-import",
+      runs: Number(row.runs || 0),
+      workouts: Number(row.workouts || 0),
+      totalRows: Number(row.total_rows || 0),
+    };
+  }).filter(row => recoveryKeyValid(row.id));
+}
+
+export async function createRecoveryPoint(label = "Manual backup"): Promise<RecoveryPoint> {
+  await ensureReady();
+  const key = "stride_recovery_" + randomUUID();
+  const statements = recoverableSnapshotStatements(key, label.trim().slice(0, 80) || "Manual backup", "manual");
+  if (cloud) {
+    await cloud.batch(statements, "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of statements) local!.prepare(statement.sql).run(...statement.args);
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const summary = (await listRecoveryPoints()).find(row => row.id === key);
+  if (!summary || summary.totalRows < 1) throw new Error("Recovery point could not be verified.");
+  return summary;
+}
+
+export async function exportRecoveryPoint(key: string) {
+  if (!recoveryKeyValid(key)) return null;
+  await ensureReady();
+  const query = { sql: "SELECT table_name, row_key, payload, captured_at FROM stride_backup_rows WHERE snapshot_key = ? ORDER BY table_name, row_key", args: [key] };
+  const rows = cloud ? (await cloud.execute(query)).rows : local!.prepare(query.sql).all(...query.args);
+  if (!rows.length) return null;
+  const tables: Record<string, unknown[]> = {};
+  for (const row of rows) {
+    const table = String(row.table_name);
+    if (!tables[table]) tables[table] = [];
+    tables[table].push(JSON.parse(String(row.payload)));
+  }
+  return {
+    format: "stride-database-recovery-export-v2",
+    snapshotKey: key,
+    capturedAt: String(rows[0].captured_at),
+    containsSensitiveCredentials: true,
+    notice: "Private backup. Includes account credential hashes, encrypted API keys, and recorded runs. Environment variables are NOT included.",
+    includes: Object.fromEntries(Object.entries(tables).map(([name, data]) => [name, data.length])),
+    tables,
+  };
+}
+
+/**
+ * Recover only the selected snapshot's future Training Block prescriptions.
+ *
+ * A full database rollback would destroy newly logged runs, so we NEVER
+ * restore the runs, secrets, settings or accounts as part of this action.
+ *
+ * Existing runs, today/past workouts and completed workouts are unchanged.
+ * Workouts absent from the chosen plan are ARCHIVED with status superseded,
+ * not deleted. Backup of all current tables is stored in the SAME transaction.
+ */
+export async function restoreFuturePlanFromRecoveryPoint(key: string):
+  Promise<{ beforeRestoreKey: string; restored: number; archived: number }> {
+  if (!recoveryKeyValid(key)) throw new RunHistoryConflictError("Invalid recovery point.");
+  await ensureReady();
+  const selected = await exportRecoveryPoint(key);
+  const savedRows = selected?.tables.workouts as Array<{ id?: string; payload?: string }> | undefined;
+  if (!selected || !Array.isArray(savedRows) || !savedRows.length) {
+    throw new RunHistoryConflictError("Selected backup has no Training Block data to restore.");
+  }
+  const today = manilaToday();
+  const saved = new Map<string, { record: Workout; payload: string }>();
+  for (const row of savedRows) {
+    if (typeof row.id !== "string" || typeof row.payload !== "string") {
+      throw new RunHistoryConflictError("Invalid workout record in backup; nothing was changed.");
+    }
+    const record = json<Workout>(row.payload, {} as Workout);
+    if (record.date && record.date > today) saved.set(row.id, { record, payload: row.payload });
+  }
+  if (!saved.size) throw new RunHistoryConflictError("This backup has no future workouts to restore.");
+  const current = await getBundle();
+  const currentById = new Map(current.plan.map(item => [String(item.id), item]));
+  const sql: Array<{ sql: string; args: (string | number | null)[] }> = [];
+  let archived = 0, restored = 0;
+  for (const workout of current.plan) {
+    const id = String(workout.id);
+    if (workout.date <= today || saved.has(id) || workout.status === "completed" || workout.status === "superseded") continue;
+    sql.push({
+      sql: "UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?",
+      args: [JSON.stringify({ ...workout, previousStatus: workout.status || "planned", status: "superseded", supersededBy: "restore:" + key }), id, JSON.stringify(workout)],
+    });
+    archived++;
+  }
+  for (const [id, entry] of saved) {
+    const existing = currentById.get(id);
+    if (existing?.status === "completed" || existing?.status === "cancelled") continue;
+    if (existing) {
+      // A current completed/cancelled choice always wins over stale snapshot status.
+      if (JSON.stringify(existing) === entry.payload) continue;
+      sql.push({ sql: "UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?", args: [entry.payload, id, JSON.stringify(existing)] });
+    } else {
+      sql.push({ sql: "INSERT OR IGNORE INTO workouts (id, payload) VALUES (?, ?)", args: [id, entry.payload] });
+    }
+    restored++;
+  }
+  if (!sql.length) throw new RunHistoryConflictError("No future Training Block changes are necessary for this backup.");
+  const titleRecord = (selected.tables.metadata as Array<{ key?: string; value?: string }> | undefined)?.find(item => item.key === "title");
+  if (typeof titleRecord?.value === "string") {
+    sql.push({ sql: "INSERT INTO metadata (key, value) VALUES ('title', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", args: [titleRecord.value] });
+  }
+  const beforeRestoreKey = "stride_recovery_" + randomUUID();
+  const backup = recoverableSnapshotStatements(beforeRestoreKey, "Automatic backup before plan restore", "before-restore");
+  // No DELETE or DROP statements; all current rows and the recovery point
+  // are retained. A failed SQL statement rolls back the whole transaction.
+  const statements = [...backup, ...sql];
+  if (cloud) {
+    await cloud.batch(statements, "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of statements) local!.prepare(statement.sql).run(...statement.args);
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const verify = await listRecoveryPoints();
+  if (!verify.some(point => point.id === beforeRestoreKey)) {
+    throw new Error("Pre-restore backup not found; refresh before making other changes.");
+  }
+  return { beforeRestoreKey, restored, archived };
 }
 
 /** Admin-only export of the pre-import snapshot; treat this file as sensitive. */
