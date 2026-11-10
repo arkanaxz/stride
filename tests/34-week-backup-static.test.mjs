@@ -20,7 +20,8 @@ test("snapshot and migration are one atomic transaction and contain no deletions
 });
 test("UI hides archived workouts and allows admin-only full backup",()=>{
   assert.match(ui,/bundle.plan.filter\(\(workout\) => workout.status !== "superseded"\)/);
-  assert.match(ui,/href="\/api\/backup\/34week"/);
+  assert.ok(!ui.includes('href="/api/backup/34week"'), "Backup link must not obstruct Training Block");
+  assert.match(ui,/return <><BackupManager onToast=\{onToast\}/);
   assert.match(ui,/changes.basePlan = bundle.plan/);
   assert.match(api,/JSON.stringify\(requestBody.basePlan\) !== JSON.stringify\(current.plan\)/);
   assert.match(backup,/user\?\.role !== "admin"/);
