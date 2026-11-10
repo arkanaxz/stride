@@ -54,9 +54,14 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const user = await currentUser();
   if (user?.role !== "admin") return Response.json({ error: "Administrator access required." }, { status: 403 });
-  const requestBody = await request.json() as Partial<Bundle> & { baseRuns?: Bundle["runs"] };
+  const requestBody = await request.json() as Partial<Bundle> & { baseRuns?: Bundle["runs"]; basePlan?: Bundle["plan"] };
   const changed: Partial<Bundle> = {};
-  if (Array.isArray(requestBody.plan)) changed.plan = requestBody.plan;
+  if (Array.isArray(requestBody.plan)) {
+    if (!Array.isArray(requestBody.basePlan)) return Response.json({ error: "Outdated tab detected. Refresh Stride before changing the Training Block; no plan records were overwritten." }, { status: 409 });
+    const current = await getBundle();
+    if (JSON.stringify(requestBody.basePlan) !== JSON.stringify(current.plan)) return Response.json({ error: "Training Block has changed since this tab was loaded. Refresh to protect current workouts; no data was overwritten." }, { status: 409 });
+    changed.plan = requestBody.plan;
+  }
   if (requestBody.preferences) changed.preferences = requestBody.preferences;
   if (requestBody.meta) changed.meta = requestBody.meta;
   const changingRuns = Array.isArray(requestBody.runs);
