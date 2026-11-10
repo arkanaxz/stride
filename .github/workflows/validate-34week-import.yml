@@ -1,0 +1,21 @@
+name: Verify safe 34-week backup and training import
+on:
+  push:
+    branches:
+      - master
+      - work/34week-backup-non-destructive
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --experimental-strip-types --test tests/34-week-plan.test.mjs
+      - run: node --test tests/34-week-backup-static.test.mjs
+      - run: npm run build
+      - run: node tests/smoke-34week-backup.mjs
+      - run: SMOKE_LIBSQL=1 node tests/smoke-34week-backup.mjs
