@@ -32,6 +32,9 @@ db.prepare("INSERT INTO runs(payload) VALUES (?)").run(JSON.stringify(originalRu
 db.prepare("INSERT INTO run_comments(run_id,username,text) VALUES (?,?,?)").run(1,"smoke_admin","Original run review");
 db.prepare("INSERT INTO settings(key,value) VALUES (?,?)").run("defaultLocation",JSON.stringify("Lapu-Lapu City, Cebu, Philippines"));
 db.prepare("INSERT INTO metadata(key,value) VALUES (?,?)").run("title",JSON.stringify("Old SM2SM plan"));
+// The separate legacy Garmin recovery routine has already run in a real existing installation.
+// Disable it only in this fixture so the migration can be tested in isolation.
+db.prepare("INSERT INTO metadata(key,value) VALUES (?,?)").run("verified_garmin_four_runs_20261105_v1",JSON.stringify("previously completed"));
 db.prepare("INSERT INTO metadata(key,value) VALUES (?,?)").run("shoeMileageBase",JSON.stringify("{\"Superblast 2\":900}"));
 db.prepare("INSERT INTO secrets(key,value) VALUES (?,?)").run("api-key:openai","ENCRYPTED_TEST_VALUE");
 db.close();
