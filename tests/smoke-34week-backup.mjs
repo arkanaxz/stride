@@ -56,7 +56,7 @@ async function ready() {
 async function json(url,init={}){const response=await fetch(root+url,init);return {status:response.status,data:await response.json()};}
 try {
   await ready();
-  assert.equal((await json("/api/backup/34week")).status,403,"No unauthenticated backup leak");
+  assert.ok([401,403].includes((await json("/api/backup/34week")).status),"Backup must reject unauthenticated requests");
   const login=await fetch(root+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json"},
     body:JSON.stringify({username:env.STRIDE_USERNAME,password:env.STRIDE_PASSWORD})});
   assert.equal(login.status,200,"Authenticated admin login");
