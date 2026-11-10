@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import type { Workout } from "@/lib/types";
-import { sub20ScheduleCompressed, sub20ScheduleSha256 } from "./sub20-34week-data";
+import { sub20ScheduleCompressed, sub20ScheduleSha256 } from "./sub20-34week-data.ts";
 
 export const SUB20_34W_IMPORT_KEY = "sub20_34week_20261110_preserve_history_v1";
 export const SUB20_34W_BACKUP_KEY = "before_sub20_34week_20261110_v1";
