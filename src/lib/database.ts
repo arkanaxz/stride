@@ -463,7 +463,7 @@ export async function listRecoveryPoints(): Promise<RecoveryPoint[]> {
       id,
       label: parsed.label || fallback,
       createdAt: parsed.createdAt || String(row.created_at || ""),
-      kind: parsed.kind === "manual" || parsed.kind === "before-restore" ? parsed.kind : "pre-import",
+      kind: (parsed.kind === "manual" || parsed.kind === "before-restore" ? parsed.kind : "pre-import") as RecoveryPoint["kind"],
       runs: Number(row.runs || 0),
       workouts: Number(row.workouts || 0),
       totalRows: Number(row.total_rows || 0),
