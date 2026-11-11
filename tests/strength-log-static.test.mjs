@@ -17,7 +17,8 @@ test("strength Log as done opens its own form; finished strength stays accessibl
   assert.match(dashboard,/else if \(workout\.strength\) \{ setStrengthLogWorkout\(workout\)/);
   assert.match(dashboard,/Strength workout history/);
   assert.match(dashboard,/workout\.status === "completed" \|\| workout\.strengthLog/);
-  assert.match(dashboard,/workout\.strengthLog \? "View \/ edit details" : "Add workout details"/);
+  const history = readFileSync("src/components/strength-history-table.tsx", "utf8");
+  assert.match(history,/w\.strengthLog \? "View \/ edit details" : "Add workout details"/);
   assert.match(dashboard,/<StrengthLogModal/);
 });
 test("strength fields match run logging with requested exclusions and detailed exercises",()=>{

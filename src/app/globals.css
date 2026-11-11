@@ -150,4 +150,9 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .strength-log-modal .strength-prescription-text{white-space:pre-wrap;line-height:1.55;color:var(--muted);font-size:12px}
 .strength-log-modal .planned-summary details{margin-top:10px}
 .strength-log-modal .planned-summary summary{cursor:pointer;color:var(--lime)}
+.strength-history-controls{justify-content:flex-start;margin:12px 0;gap:10px}
+.strength-history-controls .run-search{min-width:170px;max-width:320px;flex:1}
+.strength-history-count{font-size:11px;margin:10px 0 0}
+.strength-history-ui .custom-run-table td .btn{white-space:nowrap}
+@media(max-width:680px){.strength-history-controls{justify-content:flex-start}.strength-history-controls .run-search{max-width:100%;width:100%;flex-basis:100%}}
 
