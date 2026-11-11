@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { STRENGTH_PAGE_SIZES, searchStrengthWorkouts, paginateStrengthWorkouts, strengthWeekday } from "../src/lib/strength-history-utils.ts";
 
 const dashboard=readFileSync("src/components/dashboard.tsx","utf8");
+const css=readFileSync("src/app/globals.css","utf8");
 const table=readFileSync("src/components/strength-history-table.tsx","utf8");
 const workouts=Array.from({length:23},(_,i)=>({
   id:"strength-"+i,week:2,session:i%2?"Strength B":"Strength A",date:"2026-11-"+String(i+1).padStart(2,"0"),
@@ -20,6 +21,14 @@ test("Strength history is below run history and shoe mileage, only once, at the 
   assert.ok(pos<dashboard.indexOf('</> : bundle.user?.role === "admin" ? <Settings'));
   assert.equal(dashboard.match(/<section className="card strength-history-card"/g)?.length,1);
   assert.match(dashboard,/<StrengthHistoryTable/);
+});
+test("Strength history displays below Run History in the flex layout, not just the JSX",()=>{
+  // The .shell flex container has explicit section orders. Without these rules,
+  // Strength History defaults to order:0 and unexpectedly jumps to the top.
+  assert.match(css,/\.shell>\.two-columns\{order:4\}/);
+  assert.match(css,/\.shell>\.vo2-trend-card\{order:4\}/);
+  assert.match(css,/\.shell>\.strength-history-card\{order:5\}/);
+  assert.match(css,/\.shell>\.account-actions\{order:6\}/);
 });
 test("Search matches workouts, weekdays, date, exercises, notes, pain, and locations",()=>{
   assert.equal(searchStrengthWorkouts(workouts,"strength b").length,11);
