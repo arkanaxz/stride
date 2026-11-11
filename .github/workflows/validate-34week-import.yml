@@ -16,6 +16,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --experimental-strip-types --test tests/34-week-plan.test.mjs
+      - run: node --experimental-strip-types --test tests/combined-workout-rows.test.mjs
       - run: node --test tests/34-week-backup-static.test.mjs
       - run: node --test tests/empty-backup-manifest.test.mjs
       - run: node --test tests/backup-management.test.mjs
