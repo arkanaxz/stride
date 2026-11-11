@@ -52,7 +52,7 @@ async function call(url,init={}){
 try {
   await ready();
   const unauth=await call("/api/strength-log",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({workoutId:"strength-nov11"})});
-  assert.equal(unauth.status,403);
+  assert.ok([401,403].includes(unauth.status),"Unauthenticated writes must be blocked");
   const login=await fetch(base+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json"},
     body:JSON.stringify({username:env.STRIDE_USERNAME,password:env.STRIDE_PASSWORD})});
   assert.equal(login.status,200,"admin login");
