@@ -162,3 +162,13 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .strength-history-ui .custom-run-table td .btn{white-space:nowrap}
 @media(max-width:680px){.strength-history-controls{justify-content:flex-start}.strength-history-controls .run-search{max-width:100%;width:100%;flex-basis:100%}}
 
+
+/* Imported Wednesday run + Strength A occupies a single Training Block row,
+   with separate completion actions so only the run adds running mileage. */
+.combined-workout-actions{display:flex;align-items:flex-start;flex-wrap:wrap;gap:9px;margin:0 0 6px}
+.combined-workout-part{display:grid;gap:4px}
+.combined-workout-part small{font-size:10px;font-weight:700;color:var(--muted)}
+.combined-workout-part .status{white-space:nowrap}
+.combined-workout-manage{margin-top:6px}
+.combined-workout-manage summary{font-size:11px;font-weight:700;color:var(--mint);cursor:pointer}
+.combined-workout-manage>div{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
