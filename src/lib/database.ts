@@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Bundle, Preferences, Run, Workout } from "@/lib/types";
+import type { Bundle, Preferences, Run, StrengthLog, Workout } from "@/lib/types";
 import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-plan";
 import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
 import { VERIFIED_GARMIN_RECOVERY_KEY, verifiedGarminRunSummaries } from "@/lib/recovered-garmin-runs";
@@ -735,6 +735,91 @@ function runIdentity(run: Run): string {
  */
 
 /** Save a completed workout and its associated run in the SAME transaction. */
+/**
+ * Strength logs live on their scheduled workout record, not in Run History.
+ * One guarded row update both stores the log and marks the workout done.
+ * A previously-completed strength session can be backfilled or edited.
+ * All runs, run-mileage totals, and unrelated workouts are untouched.
+ */
+export async function saveStrengthWorkoutLog(
+  workoutId: string,
+  log: StrengthLog,
+): Promise<Bundle> {
+  await ensureReady();
+  if (!workoutId || typeof workoutId !== "string" || workoutId.length > 160) {
+    throw new RunHistoryConflictError("Missing strength workout. Refresh Stride before saving.");
+  }
+  if (!log || !/^\d{4}-\d{2}-\d{2}$/.test(log.date || "") ||
+      !log.name?.trim() || !log.type?.trim() ||
+      !Number.isFinite(Number(log.duration)) || !(log.duration > 0) ||
+      log.duration > 24 * 60) {
+    throw new RunHistoryConflictError("Enter a valid strength workout date, name, type and duration.");
+  }
+  const hr = (value: number | null | undefined) => value == null ||
+    (Number.isFinite(value) && value >= 1 && value <= 250);
+  if (!hr(log.avgHr) || !hr(log.maxHr) ||
+      (log.rpe != null && (!Number.isFinite(log.rpe) || log.rpe < 1 || log.rpe > 10)) ||
+      (log.sleep != null && (!Number.isFinite(log.sleep) || log.sleep < 0 || log.sleep > 24))) {
+    throw new RunHistoryConflictError("Check HR, sleep and RPE values before saving.");
+  }
+  const clean: StrengthLog = {
+    date: log.date,
+    name: log.name.trim().slice(0, 180),
+    type: log.type.trim().slice(0, 50),
+    duration: Number(log.duration),
+    avgHr: log.avgHr ?? null,
+    maxHr: log.maxHr ?? null,
+    sleep: log.sleep ?? null,
+    rpe: log.rpe ?? null,
+    painDuring: (log.painDuring || "").slice(0, 100),
+    painNext: (log.painNext || "").slice(0, 100),
+    location: (log.location || "").slice(0, 200),
+    startTime: (log.startTime || "").slice(0, 20),
+    endTime: (log.endTime || "").slice(0, 20),
+    weatherDuring: (log.weatherDuring || "").slice(0, 2000),
+    exercises: (log.exercises || "").slice(0, 5000),
+    notes: (log.notes || "").slice(0, 5000),
+  };
+  const before = await getBundle();
+  const workout = before.plan.find(item => String(item.id) === workoutId);
+  if (!workout || !workout.strength) {
+    throw new RunHistoryConflictError("That session is not a strength workout. Nothing was saved.");
+  }
+  if (workout.status === "cancelled" || workout.status === "superseded") {
+    throw new RunHistoryConflictError("Restore this cancelled or archived workout before logging it.");
+  }
+  // Optimistic guard rejects stale browser writes rather than overwriting a
+  // completion, edit, or change made in another tab.
+  const sql = "UPDATE workouts SET payload = ? WHERE id = ? AND payload = ?";
+  const args: (string | number | null)[] = [
+    JSON.stringify({ ...workout, status: "completed", strengthLog: clean }),
+    workoutId, JSON.stringify(workout),
+  ];
+  if (cloud) {
+    const result = await cloud.execute({ sql, args });
+    if (result.rowsAffected !== 1) {
+      throw new RunHistoryConflictError("Workout changed in another tab. Refresh to protect its details.");
+    }
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      const result = local!.prepare(sql).run(...args);
+      if (result.changes !== 1) throw new RunHistoryConflictError("Workout changed in another tab. Refresh to protect its details.");
+      local!.exec("COMMIT");
+    } catch (reason) {
+      local!.exec("ROLLBACK");
+      throw reason;
+    }
+  }
+  const saved = await getBundle();
+  const result = saved.plan.find(item => String(item.id) === workoutId);
+  if (result?.status !== "completed" ||
+      JSON.stringify(result.strengthLog) !== JSON.stringify(clean)) {
+    throw new RunHistoryConflictError("Could not verify the strength log. Refresh to check before retrying.");
+  }
+  return saved;
+}
+
 export async function completeWorkoutWithRunSafely(
   workoutId: string,
   run: Run,

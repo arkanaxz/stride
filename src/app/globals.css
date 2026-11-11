@@ -143,3 +143,11 @@ html[data-theme="light"] .lime,html[data-theme="light"] .nav-link.active{color:#
 .backup-restore-confirm label{display:grid;gap:7px;font-size:12px;margin:12px 0}
 .backup-restore-confirm input{max-width:320px;width:100%;padding:10px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px}
 @media(max-width:680px){.backup-entry{align-items:stretch}.backup-actions{width:100%}}
+/* Strength workouts are logged separately from mileage-bearing Run History. */
+.strength-history-card{margin-bottom:15px}
+.strength-history-card .table-sub{display:block;margin-top:4px}
+.strength-history-card td .btn{white-space:nowrap}
+.strength-log-modal .strength-prescription-text{white-space:pre-wrap;line-height:1.55;color:var(--muted);font-size:12px}
+.strength-log-modal .planned-summary details{margin-top:10px}
+.strength-log-modal .planned-summary summary{cursor:pointer;color:var(--lime)}
+

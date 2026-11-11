@@ -1,0 +1,20 @@
+name: Verify dashboard routing and strength workout logging
+on:
+  push:
+    branches:
+      - master
+      - work/strength-log-validation
+jobs:
+  strength-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/strength-log-static.test.mjs
+      - run: npm run build
+      - run: node tests/smoke-strength-log.mjs
+      - run: SMOKE_LIBSQL=1 node tests/smoke-strength-log.mjs

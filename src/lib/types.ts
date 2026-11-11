@@ -40,6 +40,27 @@ export type AnalysisReview = {
   text: string;
 };
 
+
+/** Actual strength or mobility training; never contributes to running mileage. */
+export type StrengthLog = {
+  date: string;
+  name: string;
+  type: string;
+  duration: number; // minutes, including seconds
+  avgHr?: number | null;
+  maxHr?: number | null;
+  sleep?: number | null;
+  rpe?: number | null;
+  painDuring?: string;
+  painNext?: string;
+  location?: string;
+  startTime?: string;
+  endTime?: string;
+  weatherDuring?: string;
+  exercises?: string;
+  notes?: string;
+};
+
 export type Workout = {
   id?: string | number;
   week: number;
@@ -51,6 +72,7 @@ export type Workout = {
   hr?: string;
   target?: string;
   strength?: string;
+  strengthLog?: StrengthLog;
   notes?: string;
   itbNext?: string;
   status?: string;
