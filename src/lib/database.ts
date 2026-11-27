@@ -9,6 +9,7 @@ import { STRENGTH_PLAN_SEED_KEY, strengthPlanWorkouts } from "@/lib/strength-pla
 import { AUTHORITATIVE_PLAN_KEY, authoritativeWorkouts } from "@/lib/sm2sm-workbook-plan";
 import { VERIFIED_GARMIN_RECOVERY_KEY, verifiedGarminRunSummaries } from "@/lib/recovered-garmin-runs";
 import { SUB20_34W_BACKUP_KEY, SUB20_34W_IMPORT_KEY, SUB20_34W_PRESERVE_THROUGH, SUB20_34W_TITLE, sub20Workouts } from "@/lib/sub20-34week-plan";
+import { NOV27_REVISION_IMPORT_KEY, NOV27_REVISION_START, NOV27_REVISION_END, NOV27_REVISION_TITLE, nov27RevisionWorkouts } from "@/lib/sub20-nov27-revision-plan";
 
 const defaultPreferences: Preferences = {
   defaultLocation: "Lapu-Lapu City, Cebu, Philippines",
@@ -407,6 +408,108 @@ const RECOVERY_SOURCES: ReadonlyArray<{ table: string; id: string; payload: stri
   { table: "run_history_backups", id: "CAST(backup_id AS TEXT)", payload: "json_object('backup_id',backup_id,'run_id',run_id,'payload',payload,'reason',reason,'captured_at',captured_at)" },
   { table: "workout_plan_backups", id: "migration_key || ':' || workout_id", payload: "json_object('migration_key',migration_key,'workout_id',workout_id,'payload',payload,'saved_at',saved_at)" },
 ];
+
+/**
+ * Apply the uploaded November 27 revision to Weeks 5–34 only.
+ *
+ * The migration is one atomic write transaction: it first stores a full
+ * recovery snapshot, then archives ONLY the original imported future
+ * planned/cancelled sessions, and adds the revised workouts under new stable
+ * IDs. No DELETE, DROP, or run-history mutation occurs. Completed sessions
+ * and strength logs are never superseded. A marker prevents repeat imports.
+ */
+export async function ensureNov27RevisedTrainingPlan(): Promise<void> {
+  await ensureReady();
+  const revised = nov27RevisionWorkouts(); // Validate SHA256, dates and counts before writing.
+  const markerSql = "SELECT key FROM metadata WHERE key = ? LIMIT 1";
+  const already = cloud
+    ? (await cloud.execute({ sql: markerSql, args: [NOV27_REVISION_IMPORT_KEY] })).rows.length > 0
+    : Boolean(local!.prepare(markerSql).get(NOV27_REVISION_IMPORT_KEY));
+  if (already) return;
+
+  // Uses the same recovery-key format as Settings > Backups, so a user can
+  // download or restore the pre-revision Training Block later if needed.
+  const snapshotKey = "stride_recovery_" + randomUUID();
+  const manifest = JSON.stringify({
+    label: "Before Nov 27 Week 5–34 training-plan revision",
+    kind: "manual",
+    createdAt: new Date().toISOString(),
+    format: "stride-database-snapshot-v2",
+    revision: NOV27_REVISION_IMPORT_KEY,
+  });
+  const guards = " WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?)";
+  const snapshot: Array<{ sql: string; args: (string | number | null)[] }> = [{
+    sql: "INSERT INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
+      "SELECT ?, 'manifest', '__snapshot', ?" + guards,
+    args: [snapshotKey, manifest, NOV27_REVISION_IMPORT_KEY],
+  }, ...RECOVERY_SOURCES.map(source => ({
+    sql: "INSERT INTO stride_backup_rows (snapshot_key, table_name, row_key, payload) " +
+      "SELECT ?, ?, " + source.id + ", " + source.payload +
+      " FROM " + source.table + guards,
+    args: [snapshotKey, source.table, NOV27_REVISION_IMPORT_KEY],
+  }))];
+
+  const supersede = {
+    sql: "UPDATE workouts SET payload = json_set(payload, " +
+      "'$.previousStatus', COALESCE(json_extract(payload, '$.status'), 'planned'), " +
+      "'$.status', 'superseded', '$.supersededBy', ?) " +
+      "WHERE id LIKE 'sub20-34w-w%' " +
+      "AND json_extract(payload, '$.date') >= ? " +
+      "AND json_extract(payload, '$.date') <= ? " +
+      "AND CAST(json_extract(payload, '$.week') AS INTEGER) >= 5 " +
+      "AND COALESCE(json_extract(payload, '$.status'), 'planned') NOT IN ('completed', 'superseded') " +
+      "AND json_extract(payload, '$.strengthLog') IS NULL " +
+      "AND NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?)",
+    args: [NOV27_REVISION_IMPORT_KEY, NOV27_REVISION_START, NOV27_REVISION_END, NOV27_REVISION_IMPORT_KEY],
+  };
+  const sourceRows = JSON.stringify(revised.map(row => [String(row.id), JSON.stringify(row)]));
+  const insertRevised = {
+    sql: "INSERT INTO workouts(id,payload) " +
+      "SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') " +
+      "FROM json_each(?) WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?) " +
+      "ON CONFLICT(id) DO NOTHING",
+    args: [sourceRows, NOV27_REVISION_IMPORT_KEY],
+  };
+  const marker = JSON.stringify({
+    sourceSheet: "34-Week Plan", sourceRevision: "2026-11-27",
+    preservedWeeks: "1–4", changedWeeks: "5–34",
+    importedCount: revised.length, previousWorkouts: "retained as superseded",
+    completedAndLoggedWorkouts: "preserved", backupSnapshot: snapshotKey,
+  });
+  const statements = [
+    ...snapshot,
+    supersede,
+    insertRevised,
+    {
+      sql: "INSERT INTO metadata(key,value) SELECT 'title', ? " +
+        "WHERE NOT EXISTS (SELECT 1 FROM metadata WHERE key = ?) " +
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      args: [JSON.stringify(NOV27_REVISION_TITLE), NOV27_REVISION_IMPORT_KEY],
+    },
+    {
+      sql: "INSERT INTO metadata(key,value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+      args: [NOV27_REVISION_IMPORT_KEY, marker],
+    },
+  ];
+  if (cloud) {
+    await cloud.batch(statements, "write");
+  } else {
+    local!.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of statements) local!.prepare(statement.sql).run(...statement.args);
+      local!.exec("COMMIT");
+    } catch (error) {
+      local!.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const verification = cloud
+    ? await cloud.execute({ sql: "SELECT COUNT(*) AS n FROM stride_backup_rows WHERE snapshot_key = ?", args: [snapshotKey] })
+    : { rows: [local!.prepare("SELECT COUNT(*) AS n FROM stride_backup_rows WHERE snapshot_key = ?").get(snapshotKey)] };
+  if (Number(verification.rows[0]?.n) < 1) {
+    throw new Error("Pre-revision recovery snapshot could not be verified. Refresh and inspect Backups.");
+  }
+}
 
 export type RecoveryPoint = {
   id: string;
