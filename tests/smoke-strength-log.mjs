@@ -82,7 +82,10 @@ try {
   assert.equal(saved.strengthLog.rpe,4);
   assert.equal(saved.strengthLog.exercises,log.exercises);
   for(const field of ["distance","shoes","garminVo2Max","effort","weatherStart","weatherEnd"])assert.equal(saved.strengthLog[field],undefined,"no running-specific field: "+field);
-  assert.equal(first.body.plan.length,records.length,"Never delete planned workouts");
+  assert.equal(first.body.plan.length,before.body.plan.length,"Strength logging does not delete or add scheduled workouts");
+  for (const row of records) assert.ok(first.body.plan.some(w => w.id === row.id), "Original strength/run plan preserved: " + row.id);
+  assert.equal(first.body.plan.filter(w => String(w.id).startsWith("sub20-nov27-w")).length,187,
+    "Week 5–34 revision is inserted once and is untouched by strength logging");
 
   const edited={...log,duration:32,rpe:5,notes:"Updated strength notes"};
   const second=await save("strength-nov11",edited);
