@@ -75,7 +75,8 @@ try {
   assert.deepEqual(first.data.runs[0].notes,originalRun.notes);
   assert.equal(first.data.comments.length,1,"Comments preserved");
   assert.equal(first.data.preferences.defaultLocation,"Lapu-Lapu City, Cebu, Philippines");
-  assert.equal(first.data.meta.title,"Sub-20 5K • 34-Week Progressive Plan");
+  assert.equal(first.data.meta.title,"Sub-20 5K • 34-Week Plan (Nov 27 Revision)");
+  assert.ok(first.data.meta.sub20_nov27_week5_revised_plan_v1,"Nov 27 one-time revision marker exists");
   assert.ok(first.data.meta.sub20_34week_20261110_preserve_history_v1,"One-time import marker exists");
 
   const byId=new Map(first.data.plan.map(w=>[w.id,w]));
@@ -93,6 +94,27 @@ try {
   assert.equal(imported.filter(w=>w.date==="2026-11-10").length,0);
   assert.ok(imported.some(w=>w.date==="2027-06-26"));
   assert.equal(imported.filter(w=>w.date==="2026-11-11").length,1);
+  const nov27=first.data.plan.filter(w=>String(w.id).startsWith("sub20-nov27-w"));
+  assert.equal(nov27.length,187,"Nov27 Week5-34 replacement rows were inserted once");
+  assert.ok(nov27.every(w=>w.week>=5 && w.week<=34));
+  assert.ok(nov27.some(w=>w.date==="2026-12-06" && w.strength));
+  assert.ok(nov27.some(w=>w.date==="2026-12-06" && !w.strength));
+  assert.equal(imported.find(w=>w.week===4 && w.date==="2026-11-25" && w.strength)?.status,
+    "planned","Week 4 was not modified by Nov27 revision");
+  assert.ok(imported.filter(w=>w.week>=5).every(w=>w.status==="superseded"),
+    "Only old future plan rows are archived, never deleted");
+  const backupKey=first.data.meta.sub20_nov27_week5_revised_plan_v1.backupSnapshot;
+  assert.match(backupKey,/^stride_recovery_[0-9a-f-]{36}$/);
+  const nov27Backup=await json("/api/backups/"+backupKey,{headers});
+  assert.equal(nov27Backup.status,200);
+  assert.equal(nov27Backup.data.tables.runs.length,1);
+  const originalWeek5=nov27Backup.data.tables.workouts.find(w=>w.id==="sub20-34w-w05-2026-12-02-wed-run");
+  assert.ok(originalWeek5,"Pre-revision backup has old future workouts");
+  assert.equal(JSON.parse(originalWeek5.payload).status,"planned",
+    "Old planned status saved before archive");
+  assert.ok(!nov27Backup.data.tables.workouts.some(w=>String(w.id).startsWith("sub20-nov27-w")),
+    "Backup is a BEFORE state, not after import");
+
 
   const response=await fetch(root+"/api/backup/34week",{headers:{cookie}});
   assert.equal(response.status,200);
