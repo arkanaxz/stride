@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import type { Workout } from "./types";
-import { nov27RevisionCompressed, nov27RevisionSha256 } from "./sub20-nov27-revision-data";
+import { nov27RevisionCompressed, nov27RevisionSha256 } from "./sub20-nov27-revision-data.ts";
 
 export const NOV27_REVISION_IMPORT_KEY = "sub20_nov27_week5_revised_plan_v1";
 export const NOV27_REVISION_START = "2026-11-30";
